@@ -6,6 +6,7 @@ import (
 
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
+	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/worktree"
 	"github.com/spf13/cobra"
@@ -27,6 +28,7 @@ func main() {
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
 	root.AddCommand(bridgeProxyCmd())
+	root.AddCommand(hostCmdProxyCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -196,4 +198,22 @@ func bridgeProxyCmd() *cobra.Command {
 			return bridge.RunProxyCommand(args[0])
 		},
 	}
+}
+
+func hostCmdProxyCmd() *cobra.Command {
+	var worktreePath string
+
+	cmd := &cobra.Command{
+		Use:    "_host-cmd-proxy [commands...]",
+		Short:  "Internal: TCP proxy for host command forwarding",
+		Hidden: true,
+		Args:   cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return hostcmd.RunProxyCommand(args, worktreePath)
+		},
+	}
+
+	cmd.Flags().StringVar(&worktreePath, "worktree", "", "Path to the worktree on the host")
+	cmd.MarkFlagRequired("worktree")
+	return cmd
 }

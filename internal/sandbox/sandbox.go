@@ -12,6 +12,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
+	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/worktree"
 )
 
@@ -91,9 +92,21 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
+	// 7.6 Start host command proxy if configured
+	var hostCmdPID, hostCmdPort int
+	if len(cfg.HostCommands) > 0 {
+		fmt.Println("Starting host command proxy...")
+		hostCmdPID, hostCmdPort, err = startHostCmdProxy(cfg.HostCommands, wtPath)
+		if err != nil {
+			fmt.Printf("Warning: host command proxy failed: %v\n", err)
+		} else {
+			fmt.Printf("  Host command proxy on port %d for: %s\n", hostCmdPort, strings.Join(cfg.HostCommands, ", "))
+		}
+	}
+
 	// 8. Start Claude container
 	fmt.Printf("Starting Claude container %s...\n", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile, bridgeMappings); err != nil {
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile, bridgeMappings, hostCmdPort); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
@@ -105,18 +118,28 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
+	// 9.5 Install host command client binary + symlinks
+	if hostCmdPort > 0 && len(cfg.HostCommands) > 0 {
+		fmt.Printf("Installing host command forwarding for: %s\n", strings.Join(cfg.HostCommands, ", "))
+		if err := docker.InstallHostCommands(claudeContainerName, cfg.HostCommands); err != nil {
+			fmt.Printf("Warning: installing host commands failed: %v\n", err)
+		}
+	}
+
 	// 10. Save state
 	state := &State{
-		ClaudeContainer: claudeContainerName,
-		AppContainer:    appContainerName,
-		NetworkName:     networkName,
-		WorktreePath:    wtPath,
-		Branch:          branch,
-		ClaudeImage:     claudeImage,
-		AppImage:        appImage,
-		ProjectDir:      projectDir,
-		BridgeProxyPID:  bridgePID,
-		BridgeMappings:  bridgeMappings,
+		ClaudeContainer:  claudeContainerName,
+		AppContainer:     appContainerName,
+		NetworkName:      networkName,
+		WorktreePath:     wtPath,
+		Branch:           branch,
+		ClaudeImage:      claudeImage,
+		AppImage:         appImage,
+		ProjectDir:       projectDir,
+		BridgeProxyPID:   bridgePID,
+		BridgeMappings:   bridgeMappings,
+		HostCmdProxyPID:  hostCmdPID,
+		HostCmdProxyPort: hostCmdPort,
 	}
 	if err := SaveState(projectDir, state); err != nil {
 		return fmt.Errorf("saving state: %w", err)
@@ -137,6 +160,12 @@ func Down(projectDir string) error {
 	if state.BridgeProxyPID > 0 {
 		fmt.Println("Stopping Chrome bridge proxy...")
 		stopBridgeProxy(state.BridgeProxyPID)
+	}
+
+	// Stop host command proxy if running
+	if state.HostCmdProxyPID > 0 {
+		fmt.Println("Stopping host command proxy...")
+		stopBridgeProxy(state.HostCmdProxyPID)
 	}
 
 	fmt.Printf("Stopping containers...\n")
@@ -231,6 +260,12 @@ func Clean(projectDir string) error {
 		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
+	// Stop host command proxy if running
+	if state.HostCmdProxyPID > 0 {
+		fmt.Println("Stopping host command proxy...")
+		stopBridgeProxy(state.HostCmdProxyPID)
+	}
+
 	// Stop containers
 	fmt.Printf("Stopping containers...\n")
 	docker.StopAndRemove(state.ClaudeContainer)
@@ -298,6 +333,50 @@ func startBridgeProxy(socketDir string) (int, []bridge.ProxyMapping, error) {
 	}
 
 	return cmd.Process.Pid, mappings, nil
+}
+
+// startHostCmdProxy launches `cbox _host-cmd-proxy` as a background process.
+// It reads the JSON port info from the process's stdout and returns its PID and port.
+func startHostCmdProxy(commands []string, worktreePath string) (int, int, error) {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return 0, 0, fmt.Errorf("finding executable: %w", err)
+	}
+
+	args := []string{"_host-cmd-proxy", "--worktree", worktreePath}
+	args = append(args, commands...)
+
+	cmd := exec.Command(selfPath, args...)
+	cmd.Stderr = os.Stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 0, 0, fmt.Errorf("creating stdout pipe: %w", err)
+	}
+
+	// Start as a new process group so it outlives this process
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return 0, 0, fmt.Errorf("starting host cmd proxy: %w", err)
+	}
+
+	// Read the first line (JSON port info)
+	buf := make([]byte, 4096)
+	n, err := stdout.Read(buf)
+	if err != nil {
+		cmd.Process.Kill()
+		return 0, 0, fmt.Errorf("reading host cmd proxy output: %w", err)
+	}
+
+	line := strings.TrimSpace(string(buf[:n]))
+	var info hostcmd.ProxyInfo
+	if err := json.Unmarshal([]byte(line), &info); err != nil {
+		cmd.Process.Kill()
+		return 0, 0, fmt.Errorf("parsing host cmd proxy output: %w", err)
+	}
+
+	return cmd.Process.Pid, info.Port, nil
 }
 
 // stopBridgeProxy sends SIGTERM to the bridge proxy process.

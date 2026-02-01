@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -83,7 +84,7 @@ func RunAppContainer(name, image, network, worktreePath string, envVars []string
 }
 
 // RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath, appContainerName string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping) error {
+func RunClaudeContainer(name, image, network, worktreePath, appContainerName string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping, hostCmdPort int) error {
 	currentUser := os.Getenv("USER")
 
 	args := []string{
@@ -110,6 +111,11 @@ func RunClaudeContainer(name, image, network, worktreePath, appContainerName str
 		}
 	}
 
+	// Pass host command proxy address if configured
+	if hostCmdPort > 0 {
+		args = append(args, "-e", fmt.Sprintf("CBOX_HOST_CMD_ADDR=host.docker.internal:%d", hostCmdPort))
+	}
+
 	for _, env := range envVars {
 		val := os.Getenv(env)
 		if val != "" {
@@ -132,6 +138,64 @@ func RunClaudeContainer(name, image, network, worktreePath, appContainerName str
 		return fmt.Errorf("docker run (claude): %w", err)
 	}
 	return nil
+}
+
+// InstallHostCommands installs the host command client binary and creates symlinks
+// for each whitelisted command in the Claude container.
+func InstallHostCommands(claudeContainer string, commands []string) error {
+	// Detect container architecture
+	arch, err := DetectContainerArch(claudeContainer)
+	if err != nil {
+		return fmt.Errorf("detecting container arch: %w", err)
+	}
+
+	// Get the correct client binary
+	clientBinary, err := HostCmdClientBinary(arch)
+	if err != nil {
+		return err
+	}
+
+	// Write the client binary into the container
+	clientPath := "/home/claude/bin/.cbox-host-cmd-client"
+	writeCmd := fmt.Sprintf("cat > %s && chmod +x %s", clientPath, clientPath)
+	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
+	cmd.Stdin = bytes.NewReader(clientBinary)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("writing client binary: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	// Create symlinks for each command
+	for _, name := range commands {
+		linkPath := "/home/claude/bin/" + name
+		// Remove existing file/link first, then create symlink
+		symlinkCmd := fmt.Sprintf("rm -f %s && ln -s %s %s", linkPath, clientPath, linkPath)
+		cmd := exec.Command("docker", "exec", claudeContainer, "sh", "-c", symlinkCmd)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("creating symlink for %q: %s: %w", name, strings.TrimSpace(string(out)), err)
+		}
+	}
+
+	return nil
+}
+
+// DetectContainerArch detects the CPU architecture of a running container.
+func DetectContainerArch(container string) (string, error) {
+	cmd := exec.Command("docker", "exec", container, "uname", "-m")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("uname -m: %w", err)
+	}
+	arch := strings.TrimSpace(string(out))
+	switch arch {
+	case "x86_64":
+		return "amd64", nil
+	case "aarch64":
+		return "arm64", nil
+	default:
+		return arch, nil
+	}
 }
 
 // InstallCommands writes wrapper scripts into the Claude container for each named command.

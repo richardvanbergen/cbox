@@ -20,8 +20,10 @@ type State struct {
 	ClaudeImage     string `json:"claude_image"`
 	AppImage        string `json:"app_image"`
 	ProjectDir      string                `json:"project_dir"`
-	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`
-	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
+	BridgeProxyPID   int                   `json:"bridge_proxy_pid,omitempty"`
+	BridgeMappings   []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
+	HostCmdProxyPID  int                   `json:"host_cmd_proxy_pid,omitempty"`
+	HostCmdProxyPort int                   `json:"host_cmd_proxy_port,omitempty"`
 }
 
 func LoadState(projectDir string) (*State, error) {

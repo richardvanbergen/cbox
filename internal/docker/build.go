@@ -12,6 +12,24 @@ import (
 //go:embed templates/Dockerfile.claude.tmpl templates/entrypoint.sh
 var claudeFiles embed.FS
 
+//go:embed hostcmd-client-linux-amd64
+var hostcmdClientAmd64 []byte
+
+//go:embed hostcmd-client-linux-arm64
+var hostcmdClientArm64 []byte
+
+// HostCmdClientBinary returns the cross-compiled client binary for the given architecture.
+func HostCmdClientBinary(arch string) ([]byte, error) {
+	switch arch {
+	case "amd64":
+		return hostcmdClientAmd64, nil
+	case "arm64":
+		return hostcmdClientArm64, nil
+	default:
+		return nil, fmt.Errorf("unsupported architecture: %s", arch)
+	}
+}
+
 // BuildBaseImage builds the user's production image from their Dockerfile.
 func BuildBaseImage(contextDir, dockerfile, target, imageName string) error {
 	args := []string{"build", "-f", dockerfile, "-t", imageName}

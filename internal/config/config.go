@@ -17,7 +17,8 @@ type Config struct {
 	Env        []string          `yaml:"env,omitempty"`
 	EnvFile    string            `yaml:"env_file,omitempty"`
 	Ports      []string          `yaml:"ports,omitempty"`
-	Browser    bool              `yaml:"browser,omitempty"`
+	Browser      bool              `yaml:"browser,omitempty"`
+	HostCommands []string          `yaml:"host_commands,omitempty"`
 }
 
 func DefaultConfig() *Config {

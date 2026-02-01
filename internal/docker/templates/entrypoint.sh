@@ -27,7 +27,9 @@ if [ -n "$CHROME_BRIDGE_MAPPINGS" ]; then
 
     # Parse JSON mappings without jq: extract socket_name and tcp_port pairs
     # Input format: [{"socket_name":"86155.sock","tcp_port":49321},...]
-    echo "$CHROME_BRIDGE_MAPPINGS" | tr '{}' '\n' | while IFS= read -r entry; do
+    # Use process substitution instead of a pipeline so socat processes are
+    # children of the main shell and survive the exec into gosu.
+    while IFS= read -r entry; do
         SOCK_NAME=$(echo "$entry" | sed -n 's/.*"socket_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         TCP_PORT=$(echo "$entry" | sed -n 's/.*"tcp_port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
 
@@ -38,7 +40,7 @@ if [ -n "$CHROME_BRIDGE_MAPPINGS" ]; then
             socat UNIX-LISTEN:"$SOCK_PATH",fork,mode=0600,user=claude \
                   TCP:host.docker.internal:"$TCP_PORT" &
         fi
-    done
+    done < <(echo "$CHROME_BRIDGE_MAPPINGS" | tr '{}' '\n')
 
     # Brief wait for socat processes to create socket files
     sleep 0.2

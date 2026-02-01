@@ -105,7 +105,6 @@ func downCmd() *cobra.Command {
 
 func chatCmd() *cobra.Command {
 	var prompt string
-	var chrome bool
 
 	cmd := &cobra.Command{
 		Use:   "chat",
@@ -113,11 +112,9 @@ func chatCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 
-			// Merge --chrome flag with browser config from .cbox.yml
-			if !chrome {
-				if cfg, err := config.Load(dir); err == nil {
-					chrome = cfg.Browser
-				}
+			var chrome bool
+			if cfg, err := config.Load(dir); err == nil {
+				chrome = cfg.Browser
 			}
 
 			if prompt != "" {
@@ -128,7 +125,6 @@ func chatCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
-	cmd.Flags().BoolVar(&chrome, "chrome", false, "Enable Chrome browser integration")
 	return cmd
 }
 

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/richvanbergen/cbox/internal/bridge"
 )
 
 // ContainerName returns a deterministic container name with a role suffix.
@@ -81,9 +83,8 @@ func RunAppContainer(name, image, network, worktreePath string, envVars []string
 }
 
 // RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath, appContainerName string, envVars []string, envFile string) error {
+func RunClaudeContainer(name, image, network, worktreePath, appContainerName string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping) error {
 	currentUser := os.Getenv("USER")
-	chromeBridgePath := "/tmp/claude-mcp-browser-bridge-" + currentUser
 
 	args := []string{
 		"run", "-d",
@@ -100,11 +101,13 @@ func RunClaudeContainer(name, image, network, worktreePath, appContainerName str
 		args = append(args, "-e", "CLAUDE_CODE_CREDENTIALS="+strings.TrimSpace(string(credOut)))
 	}
 
-	// Mount Chrome native messaging socket if it exists, and pass USER so
-	// Claude Code inside the container resolves the same socket path.
-	if _, err := os.Stat(chromeBridgePath); err == nil {
-		args = append(args, "-v", chromeBridgePath+":"+chromeBridgePath)
-		args = append(args, "-e", "USER="+currentUser)
+	// Pass Chrome bridge mappings and USER so the entrypoint can set up socat relays
+	if len(bridgeMappings) > 0 {
+		mappingsJSON, err := bridge.MarshalMappings(bridgeMappings)
+		if err == nil {
+			args = append(args, "-e", "CHROME_BRIDGE_MAPPINGS="+mappingsJSON)
+			args = append(args, "-e", "USER="+currentUser)
+		}
 	}
 
 	for _, env := range envVars {

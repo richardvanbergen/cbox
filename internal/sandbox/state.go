@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/richvanbergen/cbox/internal/bridge"
 )
 
 const StateFile = ".cbox.state.json"
@@ -17,7 +19,9 @@ type State struct {
 	Branch          string `json:"branch"`
 	ClaudeImage     string `json:"claude_image"`
 	AppImage        string `json:"app_image"`
-	ProjectDir      string `json:"project_dir"`
+	ProjectDir      string                `json:"project_dir"`
+	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`
+	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
 }
 
 func LoadState(projectDir string) (*State, error) {

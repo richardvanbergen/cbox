@@ -1,9 +1,15 @@
 package sandbox
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 
+	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/worktree"
@@ -66,9 +72,26 @@ func Up(projectDir, branch string) error {
 		return fmt.Errorf("starting app container: %w", err)
 	}
 
+	// 7.5 Start Chrome bridge proxy if bridge sockets exist on the host
+	var bridgePID int
+	var bridgeMappings []bridge.ProxyMapping
+	currentUser := os.Getenv("USER")
+	chromeBridgePath := "/tmp/claude-mcp-browser-bridge-" + currentUser
+	if _, err := os.Stat(chromeBridgePath); err == nil {
+		fmt.Println("Starting Chrome bridge proxy...")
+		bridgePID, bridgeMappings, err = startBridgeProxy(chromeBridgePath)
+		if err != nil {
+			fmt.Printf("Warning: Chrome bridge proxy failed: %v\n", err)
+		} else if len(bridgeMappings) > 0 {
+			for _, m := range bridgeMappings {
+				fmt.Printf("  %s → TCP port %d\n", m.SocketName, m.TCPPort)
+			}
+		}
+	}
+
 	// 8. Start Claude container
 	fmt.Printf("Starting Claude container %s...\n", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile); err != nil {
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile, bridgeMappings); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
@@ -90,6 +113,8 @@ func Up(projectDir, branch string) error {
 		ClaudeImage:     claudeImage,
 		AppImage:        appImage,
 		ProjectDir:      projectDir,
+		BridgeProxyPID:  bridgePID,
+		BridgeMappings:  bridgeMappings,
 	}
 	if err := SaveState(projectDir, state); err != nil {
 		return fmt.Errorf("saving state: %w", err)
@@ -104,6 +129,12 @@ func Down(projectDir string) error {
 	state, err := LoadState(projectDir)
 	if err != nil {
 		return err
+	}
+
+	// Stop bridge proxy if running
+	if state.BridgeProxyPID > 0 {
+		fmt.Println("Stopping Chrome bridge proxy...")
+		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
 	fmt.Printf("Stopping containers...\n")
@@ -182,6 +213,12 @@ func Clean(projectDir string) error {
 		return err
 	}
 
+	// Stop bridge proxy if running
+	if state.BridgeProxyPID > 0 {
+		fmt.Println("Stopping Chrome bridge proxy...")
+		stopBridgeProxy(state.BridgeProxyPID)
+	}
+
 	// Stop containers
 	fmt.Printf("Stopping containers...\n")
 	docker.StopAndRemove(state.ClaudeContainer)
@@ -208,4 +245,55 @@ func Clean(projectDir string) error {
 
 	fmt.Println("Sandbox cleaned up.")
 	return nil
+}
+
+// startBridgeProxy launches `cbox _bridge-proxy` as a background process.
+// It reads the JSON mappings from the process's stdout and returns its PID.
+func startBridgeProxy(socketDir string) (int, []bridge.ProxyMapping, error) {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return 0, nil, fmt.Errorf("finding executable: %w", err)
+	}
+
+	cmd := exec.Command(selfPath, "_bridge-proxy", socketDir)
+	cmd.Stderr = os.Stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 0, nil, fmt.Errorf("creating stdout pipe: %w", err)
+	}
+
+	// Start as a new process group so it outlives this process
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return 0, nil, fmt.Errorf("starting bridge proxy: %w", err)
+	}
+
+	// Read the first line (JSON mappings)
+	buf := make([]byte, 4096)
+	n, err := stdout.Read(buf)
+	if err != nil {
+		cmd.Process.Kill()
+		return 0, nil, fmt.Errorf("reading bridge proxy output: %w", err)
+	}
+
+	line := strings.TrimSpace(string(buf[:n]))
+	var mappings []bridge.ProxyMapping
+	if err := json.Unmarshal([]byte(line), &mappings); err != nil {
+		cmd.Process.Kill()
+		return 0, nil, fmt.Errorf("parsing bridge proxy output: %w", err)
+	}
+
+	return cmd.Process.Pid, mappings, nil
+}
+
+// stopBridgeProxy sends SIGTERM to the bridge proxy process.
+func stopBridgeProxy(pid int) {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	proc.Signal(syscall.SIGTERM)
+	proc.Wait()
 }

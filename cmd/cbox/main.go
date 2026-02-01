@@ -20,8 +20,9 @@ func main() {
 	root.AddCommand(initCmd())
 	root.AddCommand(upCmd())
 	root.AddCommand(downCmd())
-	root.AddCommand(attachCmd())
-	root.AddCommand(runCmd())
+	root.AddCommand(chatCmd())
+	root.AddCommand(execCmd())
+	root.AddCommand(shellCmd())
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
@@ -102,31 +103,41 @@ func downCmd() *cobra.Command {
 	}
 }
 
-func attachCmd() *cobra.Command {
-	var chat bool
+func chatCmd() *cobra.Command {
+	var prompt string
 
 	cmd := &cobra.Command{
-		Use:   "attach",
-		Short: "Attach to the running container (shell by default, --chat for Claude)",
+		Use:   "chat",
+		Short: "Start Claude Code in the sandbox (interactive or one-shot with -p)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if chat {
-				return sandbox.Chat(projectDir())
+			if prompt != "" {
+				return sandbox.ChatPrompt(projectDir(), prompt)
 			}
-			return sandbox.Attach(projectDir())
+			return sandbox.Chat(projectDir())
 		},
 	}
 
-	cmd.Flags().BoolVar(&chat, "chat", false, "Start Claude instead of a shell")
+	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
 	return cmd
 }
 
-func runCmd() *cobra.Command {
+func execCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "run [prompt]",
-		Short: "Run a one-shot Claude prompt in the sandbox",
-		Args:  cobra.ExactArgs(1),
+		Use:   "exec [command...]",
+		Short: "Run a command in the app container (no args for interactive shell)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Run(projectDir(), args[0])
+			return sandbox.Exec(projectDir(), args)
+		},
+		DisableFlagParsing: true,
+	}
+}
+
+func shellCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "shell",
+		Short: "Open a shell in the Claude container (for debugging)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.Shell(projectDir())
 		},
 	}
 }

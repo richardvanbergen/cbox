@@ -110,10 +110,17 @@ func chatCmd() *cobra.Command {
 		Use:   "chat",
 		Short: "Start Claude Code in the sandbox (interactive or one-shot with -p)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if prompt != "" {
-				return sandbox.ChatPrompt(projectDir(), prompt)
+			dir := projectDir()
+
+			var chrome bool
+			if cfg, err := config.Load(dir); err == nil {
+				chrome = cfg.Browser
 			}
-			return sandbox.Chat(projectDir())
+
+			if prompt != "" {
+				return sandbox.ChatPrompt(dir, prompt)
+			}
+			return sandbox.Chat(dir, chrome)
 		},
 	}
 

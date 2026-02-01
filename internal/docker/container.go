@@ -165,13 +165,16 @@ func Shell(name string) error {
 }
 
 // Chat execs into the Claude container and launches Claude Code interactively.
-func Chat(name string) error {
+func Chat(name string, chrome bool) error {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
 		return fmt.Errorf("docker not found: %w", err)
 	}
 
-	args := []string{"docker", "exec", "-it", "-u", "claude", name, "claude", "--dangerously-skip-permissions", "--chrome"}
+	args := []string{"docker", "exec", "-it", "-u", "claude", name, "claude", "--dangerously-skip-permissions"}
+	if chrome {
+		args = append(args, "--chrome")
+	}
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 

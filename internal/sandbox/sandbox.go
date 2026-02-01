@@ -72,19 +72,21 @@ func Up(projectDir, branch string) error {
 		return fmt.Errorf("starting app container: %w", err)
 	}
 
-	// 7.5 Start Chrome bridge proxy if bridge sockets exist on the host
+	// 7.5 Start Chrome bridge proxy if browser is enabled and bridge sockets exist on the host
 	var bridgePID int
 	var bridgeMappings []bridge.ProxyMapping
-	currentUser := os.Getenv("USER")
-	chromeBridgePath := "/tmp/claude-mcp-browser-bridge-" + currentUser
-	if _, err := os.Stat(chromeBridgePath); err == nil {
-		fmt.Println("Starting Chrome bridge proxy...")
-		bridgePID, bridgeMappings, err = startBridgeProxy(chromeBridgePath)
-		if err != nil {
-			fmt.Printf("Warning: Chrome bridge proxy failed: %v\n", err)
-		} else if len(bridgeMappings) > 0 {
-			for _, m := range bridgeMappings {
-				fmt.Printf("  %s → TCP port %d\n", m.SocketName, m.TCPPort)
+	if cfg.Browser {
+		currentUser := os.Getenv("USER")
+		chromeBridgePath := "/tmp/claude-mcp-browser-bridge-" + currentUser
+		if _, err := os.Stat(chromeBridgePath); err == nil {
+			fmt.Println("Starting Chrome bridge proxy...")
+			bridgePID, bridgeMappings, err = startBridgeProxy(chromeBridgePath)
+			if err != nil {
+				fmt.Printf("Warning: Chrome bridge proxy failed: %v\n", err)
+			} else if len(bridgeMappings) > 0 {
+				for _, m := range bridgeMappings {
+					fmt.Printf("  %s → TCP port %d\n", m.SocketName, m.TCPPort)
+				}
 			}
 		}
 	}
@@ -153,13 +155,13 @@ func Down(projectDir string) error {
 }
 
 // Chat launches Claude Code interactively in the Claude container.
-func Chat(projectDir string) error {
+func Chat(projectDir string, chrome bool) error {
 	state, err := LoadState(projectDir)
 	if err != nil {
 		return err
 	}
 
-	return docker.Chat(state.ClaudeContainer)
+	return docker.Chat(state.ClaudeContainer, chrome)
 }
 
 // ChatPrompt runs a one-shot Claude prompt in the Claude container.

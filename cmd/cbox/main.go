@@ -105,19 +105,30 @@ func downCmd() *cobra.Command {
 
 func chatCmd() *cobra.Command {
 	var prompt string
+	var chrome bool
 
 	cmd := &cobra.Command{
 		Use:   "chat",
 		Short: "Start Claude Code in the sandbox (interactive or one-shot with -p)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if prompt != "" {
-				return sandbox.ChatPrompt(projectDir(), prompt)
+			dir := projectDir()
+
+			// Merge --chrome flag with browser config from .cbox.yml
+			if !chrome {
+				if cfg, err := config.Load(dir); err == nil {
+					chrome = cfg.Browser
+				}
 			}
-			return sandbox.Chat(projectDir())
+
+			if prompt != "" {
+				return sandbox.ChatPrompt(dir, prompt)
+			}
+			return sandbox.Chat(dir, chrome)
 		},
 	}
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
+	cmd.Flags().BoolVar(&chrome, "chrome", false, "Enable Chrome browser integration")
 	return cmd
 }
 

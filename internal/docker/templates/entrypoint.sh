@@ -18,4 +18,30 @@ if [ -n "$CLAUDE_CODE_CREDENTIALS" ]; then
     chmod 600 /home/claude/.claude/.credentials.json
 fi
 
+# Set up Chrome bridge socket relays via socat if mappings are provided
+if [ -n "$CHROME_BRIDGE_MAPPINGS" ]; then
+    BRIDGE_DIR="/tmp/claude-mcp-browser-bridge-${USER}"
+    mkdir -p "$BRIDGE_DIR"
+    chown claude:claude "$BRIDGE_DIR"
+    chmod 700 "$BRIDGE_DIR"
+
+    # Parse JSON mappings without jq: extract socket_name and tcp_port pairs
+    # Input format: [{"socket_name":"86155.sock","tcp_port":49321},...]
+    echo "$CHROME_BRIDGE_MAPPINGS" | tr '{}' '\n' | while IFS= read -r entry; do
+        SOCK_NAME=$(echo "$entry" | sed -n 's/.*"socket_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        TCP_PORT=$(echo "$entry" | sed -n 's/.*"tcp_port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+
+        if [ -n "$SOCK_NAME" ] && [ -n "$TCP_PORT" ]; then
+            SOCK_PATH="$BRIDGE_DIR/$SOCK_NAME"
+            # Remove stale socket file if it exists
+            rm -f "$SOCK_PATH"
+            socat UNIX-LISTEN:"$SOCK_PATH",fork,mode=0600,user=claude \
+                  TCP:host.docker.internal:"$TCP_PORT" &
+        fi
+    done
+
+    # Brief wait for socat processes to create socket files
+    sleep 0.2
+fi
+
 exec gosu claude "$@"

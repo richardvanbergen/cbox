@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/worktree"
@@ -24,6 +25,7 @@ func main() {
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
+	root.AddCommand(bridgeProxyCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -162,6 +164,18 @@ func cleanCmd() *cobra.Command {
 		Short: "Stop container, remove worktree and branch",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Clean(projectDir())
+		},
+	}
+}
+
+func bridgeProxyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "_bridge-proxy [socket-dir]",
+		Short:  "Internal: TCP proxy for Chrome bridge sockets",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return bridge.RunProxyCommand(args[0])
 		},
 	}
 }

@@ -161,7 +161,7 @@ func Shell(name string) error {
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
-// Chat execs into a running container and launches Claude with full permissions.
+// Chat execs into the Claude container and launches Claude Code interactively.
 func Chat(name string) error {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
@@ -172,8 +172,8 @@ func Chat(name string) error {
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
-// ExecPrompt runs Claude in headless mode with a prompt inside the container.
-func ExecPrompt(name, prompt string) error {
+// ChatPrompt runs Claude in headless mode with a prompt inside the Claude container.
+func ChatPrompt(name, prompt string) error {
 	cmd := exec.Command("docker", "exec", "-u", "claude", name,
 		"claude", "--dangerously-skip-permissions",
 		"-p", prompt,
@@ -182,6 +182,23 @@ func ExecPrompt(name, prompt string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// ExecApp runs a command in the app container interactively.
+// If no command is given, it opens a shell.
+func ExecApp(name string, command []string) error {
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		return fmt.Errorf("docker not found: %w", err)
+	}
+
+	args := []string{"docker", "exec", "-it", name}
+	if len(command) == 0 {
+		args = append(args, "sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh")
+	} else {
+		args = append(args, command...)
+	}
+	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
 // StopAndRemove stops and removes a container.

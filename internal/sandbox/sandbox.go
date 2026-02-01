@@ -95,7 +95,7 @@ func Up(projectDir, branch string) error {
 		return fmt.Errorf("saving state: %w", err)
 	}
 
-	fmt.Printf("\nSandbox is running! Use 'cbox attach' to start Claude.\n")
+	fmt.Printf("\nSandbox is running! Use 'cbox chat' to start Claude.\n")
 	return nil
 }
 
@@ -121,17 +121,7 @@ func Down(projectDir string) error {
 	return nil
 }
 
-// Attach execs into the Claude container with a shell.
-func Attach(projectDir string) error {
-	state, err := LoadState(projectDir)
-	if err != nil {
-		return err
-	}
-
-	return docker.Shell(state.ClaudeContainer)
-}
-
-// Chat execs into the Claude container and starts Claude.
+// Chat launches Claude Code interactively in the Claude container.
 func Chat(projectDir string) error {
 	state, err := LoadState(projectDir)
 	if err != nil {
@@ -141,14 +131,34 @@ func Chat(projectDir string) error {
 	return docker.Chat(state.ClaudeContainer)
 }
 
-// Run executes a one-shot Claude prompt in the Claude container.
-func Run(projectDir, prompt string) error {
+// ChatPrompt runs a one-shot Claude prompt in the Claude container.
+func ChatPrompt(projectDir, prompt string) error {
 	state, err := LoadState(projectDir)
 	if err != nil {
 		return err
 	}
 
-	return docker.ExecPrompt(state.ClaudeContainer, prompt)
+	return docker.ChatPrompt(state.ClaudeContainer, prompt)
+}
+
+// Exec runs a command in the app container. No command means interactive shell.
+func Exec(projectDir string, command []string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	return docker.ExecApp(state.AppContainer, command)
+}
+
+// Shell opens an interactive shell in the Claude container.
+func Shell(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	return docker.Shell(state.ClaudeContainer)
 }
 
 // Info prints the current sandbox state.

@@ -15,7 +15,7 @@ Claude Container              App Container
   docker.sock (mount)         ports exposed
 ```
 
-- **Claude container** — Fixed Debian image with Claude Code CLI and Docker client. You attach here. Has generated wrapper scripts (`cbox-run`, `cbox-test`, etc.) that execute commands in the app container.
+- **Claude container** — Fixed Debian image with Claude Code CLI and Docker client. `cbox chat` connects here. Has generated wrapper scripts (`cbox-run`, `cbox-test`, etc.) that execute commands in the app container.
 - **App container** — Your Dockerfile built unmodified, started with `sleep infinity`. Named commands from `.cbox.yml` run inside it.
 - **Workspace** — A git worktree mounted into both containers. Each branch gets its own isolated worktree.
 
@@ -47,11 +47,17 @@ cbox init
 # Start sandbox on a new branch
 cbox up --branch feat-my-feature
 
-# Drop into a shell in the workspace
-cbox attach
+# Start Claude
+cbox chat
 
-# Or start Claude directly
-cbox attach --chat
+# Run a one-shot prompt
+cbox chat -p "refactor the auth module"
+
+# Shell into the app container
+cbox exec
+
+# Run a command in the app container
+cbox exec npm test
 
 # Stop containers (keeps worktree)
 cbox down
@@ -102,17 +108,21 @@ Creates a git worktree, builds both images, creates a Docker network, and starts
 
 Stops both containers and removes the network. Preserves the worktree so you can `cbox up` again.
 
-### `cbox attach`
+### `cbox chat`
 
-Opens a bash shell in the Claude container at `/workspace`.
+Launches Claude Code interactively in the Claude container.
 
-### `cbox attach --chat`
-
-Launches Claude Code with `--dangerously-skip-permissions` in the Claude container.
-
-### `cbox run "<prompt>"`
+### `cbox chat -p "<prompt>"`
 
 Runs a one-shot Claude prompt in the Claude container (headless, JSON output).
+
+### `cbox exec [command...]`
+
+Runs a command in the app container. With no arguments, opens an interactive shell (prefers bash, falls back to sh).
+
+### `cbox shell`
+
+Opens a bash shell in the Claude container. Useful for debugging the Claude container itself.
 
 ### `cbox clean`
 

@@ -1,0 +1,211 @@
+package sandbox
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/richvanbergen/cbox/internal/config"
+	"github.com/richvanbergen/cbox/internal/docker"
+	"github.com/richvanbergen/cbox/internal/worktree"
+)
+
+// Up creates a worktree, builds images, creates a network, and starts two containers.
+func Up(projectDir, branch string) error {
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+
+	projectName := filepath.Base(projectDir)
+
+	// 1. Create or reuse worktree
+	fmt.Printf("Preparing worktree for branch '%s'...\n", branch)
+	wtPath, err := worktree.Create(projectDir, branch)
+	if err != nil {
+		return fmt.Errorf("creating worktree: %w", err)
+	}
+	fmt.Printf("Worktree ready at %s\n", wtPath)
+
+	// 2. Build app image (user's Dockerfile)
+	appImage := docker.ImageName(projectName, "app")
+	fmt.Printf("Building app image %s...\n", appImage)
+	dockerfile := filepath.Join(projectDir, cfg.Dockerfile)
+	if err := docker.BuildBaseImage(projectDir, dockerfile, cfg.Target, appImage); err != nil {
+		return fmt.Errorf("building app image: %w", err)
+	}
+
+	// 3. Build Claude image
+	claudeImage := docker.ImageName(projectName, "claude")
+	fmt.Printf("Building Claude image %s...\n", claudeImage)
+	if err := docker.BuildClaudeImage(claudeImage); err != nil {
+		return fmt.Errorf("building claude image: %w", err)
+	}
+
+	// 4. Create Docker network
+	networkName := docker.NetworkName(projectName, branch)
+	fmt.Printf("Creating network %s...\n", networkName)
+	if err := docker.CreateNetwork(networkName); err != nil {
+		return fmt.Errorf("creating network: %w", err)
+	}
+
+	// 5. Stop/remove existing containers
+	appContainerName := docker.ContainerName(projectName, branch, "app")
+	claudeContainerName := docker.ContainerName(projectName, branch, "claude")
+	docker.StopAndRemove(appContainerName)
+	docker.StopAndRemove(claudeContainerName)
+
+	// 6. Resolve env file path
+	envFile := ""
+	if cfg.EnvFile != "" {
+		envFile = filepath.Join(projectDir, cfg.EnvFile)
+	}
+
+	// 7. Start App container
+	fmt.Printf("Starting app container %s...\n", appContainerName)
+	if err := docker.RunAppContainer(appContainerName, appImage, networkName, wtPath, cfg.Env, envFile, cfg.Ports); err != nil {
+		return fmt.Errorf("starting app container: %w", err)
+	}
+
+	// 8. Start Claude container
+	fmt.Printf("Starting Claude container %s...\n", claudeContainerName)
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile); err != nil {
+		return fmt.Errorf("starting claude container: %w", err)
+	}
+
+	// 9. Install named command scripts
+	if len(cfg.Commands) > 0 {
+		fmt.Printf("Installing %d command(s)...\n", len(cfg.Commands))
+		if err := docker.InstallCommands(claudeContainerName, cfg.Commands); err != nil {
+			return fmt.Errorf("installing commands: %w", err)
+		}
+	}
+
+	// 10. Save state
+	state := &State{
+		ClaudeContainer: claudeContainerName,
+		AppContainer:    appContainerName,
+		NetworkName:     networkName,
+		WorktreePath:    wtPath,
+		Branch:          branch,
+		ClaudeImage:     claudeImage,
+		AppImage:        appImage,
+		ProjectDir:      projectDir,
+	}
+	if err := SaveState(projectDir, state); err != nil {
+		return fmt.Errorf("saving state: %w", err)
+	}
+
+	fmt.Printf("\nSandbox is running! Use 'cbox attach' to start Claude.\n")
+	return nil
+}
+
+// Down stops both containers and removes the network.
+func Down(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Stopping containers...\n")
+	docker.StopAndRemove(state.ClaudeContainer)
+	docker.StopAndRemove(state.AppContainer)
+
+	fmt.Printf("Removing network %s...\n", state.NetworkName)
+	docker.RemoveNetwork(state.NetworkName)
+
+	if err := RemoveState(projectDir); err != nil {
+		return fmt.Errorf("removing state: %w", err)
+	}
+
+	fmt.Printf("Containers stopped. Worktree preserved at %s\n", state.WorktreePath)
+	return nil
+}
+
+// Attach execs into the Claude container with a shell.
+func Attach(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	return docker.Shell(state.ClaudeContainer)
+}
+
+// Chat execs into the Claude container and starts Claude.
+func Chat(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	return docker.Chat(state.ClaudeContainer)
+}
+
+// Run executes a one-shot Claude prompt in the Claude container.
+func Run(projectDir, prompt string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	return docker.ExecPrompt(state.ClaudeContainer, prompt)
+}
+
+// Info prints the current sandbox state.
+func Info(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Branch:           %s\n", state.Branch)
+	fmt.Printf("Worktree:         %s\n", state.WorktreePath)
+	fmt.Printf("Claude container: %s\n", state.ClaudeContainer)
+	fmt.Printf("App container:    %s\n", state.AppContainer)
+	fmt.Printf("Network:          %s\n", state.NetworkName)
+	return nil
+}
+
+// ActiveBranch returns the branch name from the current sandbox state, or empty string if none.
+func ActiveBranch(projectDir string) string {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return ""
+	}
+	return state.Branch
+}
+
+// Clean stops both containers, removes the network, worktree, and branch.
+func Clean(projectDir string) error {
+	state, err := LoadState(projectDir)
+	if err != nil {
+		return err
+	}
+
+	// Stop containers
+	fmt.Printf("Stopping containers...\n")
+	docker.StopAndRemove(state.ClaudeContainer)
+	docker.StopAndRemove(state.AppContainer)
+
+	// Remove network
+	fmt.Printf("Removing network %s...\n", state.NetworkName)
+	docker.RemoveNetwork(state.NetworkName)
+
+	// Remove worktree
+	fmt.Printf("Removing worktree at %s...\n", state.WorktreePath)
+	if err := worktree.Remove(state.ProjectDir, state.WorktreePath); err != nil {
+		fmt.Printf("Warning: could not remove worktree: %v\n", err)
+	}
+
+	// Delete branch
+	fmt.Printf("Deleting branch %s...\n", state.Branch)
+	if err := worktree.DeleteBranch(state.ProjectDir, state.Branch); err != nil {
+		fmt.Printf("Warning: could not delete branch: %v\n", err)
+	}
+
+	// Remove state
+	RemoveState(projectDir)
+
+	fmt.Println("Sandbox cleaned up.")
+	return nil
+}

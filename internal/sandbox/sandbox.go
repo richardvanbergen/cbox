@@ -91,13 +91,33 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
-	// 8. Start Claude container
+	// 8. Start MCP host command proxy if configured
+	var mcpPID, mcpPort int
+	if len(cfg.HostCommands) > 0 {
+		fmt.Println("Starting MCP host command server...")
+		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands)
+		if err != nil {
+			fmt.Printf("Warning: MCP host command server failed: %v\n", err)
+		} else {
+			fmt.Printf("  MCP server listening on port %d\n", mcpPort)
+		}
+	}
+
+	// 9. Start Claude container
 	fmt.Printf("Starting Claude container %s...\n", claudeContainerName)
 	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile, bridgeMappings); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
-	// 9. Install named command scripts
+	// 9.5 Inject MCP config into Claude container if MCP proxy is running
+	if mcpPort > 0 {
+		fmt.Println("Injecting MCP config into Claude container...")
+		if err := docker.InjectMCPConfig(claudeContainerName, mcpPort); err != nil {
+			fmt.Printf("Warning: could not inject MCP config: %v\n", err)
+		}
+	}
+
+	// 10. Install named command scripts
 	if len(cfg.Commands) > 0 {
 		fmt.Printf("Installing %d command(s)...\n", len(cfg.Commands))
 		if err := docker.InstallCommands(claudeContainerName, cfg.Commands); err != nil {
@@ -105,7 +125,7 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
-	// 10. Save state
+	// 11. Save state
 	state := &State{
 		ClaudeContainer: claudeContainerName,
 		AppContainer:    appContainerName,
@@ -117,6 +137,8 @@ func Up(projectDir, branch string) error {
 		ProjectDir:      projectDir,
 		BridgeProxyPID:  bridgePID,
 		BridgeMappings:  bridgeMappings,
+		MCPProxyPID:     mcpPID,
+		MCPProxyPort:    mcpPort,
 	}
 	if err := SaveState(projectDir, state); err != nil {
 		return fmt.Errorf("saving state: %w", err)
@@ -137,6 +159,12 @@ func Down(projectDir string) error {
 	if state.BridgeProxyPID > 0 {
 		fmt.Println("Stopping Chrome bridge proxy...")
 		stopBridgeProxy(state.BridgeProxyPID)
+	}
+
+	// Stop MCP proxy if running
+	if state.MCPProxyPID > 0 {
+		fmt.Println("Stopping MCP host command server...")
+		stopProcess(state.MCPProxyPID)
 	}
 
 	fmt.Printf("Stopping containers...\n")
@@ -231,6 +259,12 @@ func Clean(projectDir string) error {
 		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
+	// Stop MCP proxy if running
+	if state.MCPProxyPID > 0 {
+		fmt.Println("Stopping MCP host command server...")
+		stopProcess(state.MCPProxyPID)
+	}
+
 	// Stop containers
 	fmt.Printf("Stopping containers...\n")
 	docker.StopAndRemove(state.ClaudeContainer)
@@ -302,10 +336,61 @@ func startBridgeProxy(socketDir string) (int, []bridge.ProxyMapping, error) {
 
 // stopBridgeProxy sends SIGTERM to the bridge proxy process.
 func stopBridgeProxy(pid int) {
+	stopProcess(pid)
+}
+
+// stopProcess sends SIGTERM to a process and waits for it to exit.
+func stopProcess(pid int) {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return
 	}
 	proc.Signal(syscall.SIGTERM)
 	proc.Wait()
+}
+
+// startMCPProxy launches `cbox _mcp-proxy` as a background process.
+// It reads the JSON output from the process's stdout and returns its PID and port.
+func startMCPProxy(worktreePath string, commands []string) (int, int, error) {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return 0, 0, fmt.Errorf("finding executable: %w", err)
+	}
+
+	args := []string{"_mcp-proxy", "--worktree", worktreePath}
+	args = append(args, commands...)
+
+	cmd := exec.Command(selfPath, args...)
+	cmd.Stderr = os.Stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 0, 0, fmt.Errorf("creating stdout pipe: %w", err)
+	}
+
+	// Start as a new process group so it outlives this process
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return 0, 0, fmt.Errorf("starting MCP proxy: %w", err)
+	}
+
+	// Read the first line (JSON with port)
+	buf := make([]byte, 4096)
+	n, err := stdout.Read(buf)
+	if err != nil {
+		cmd.Process.Kill()
+		return 0, 0, fmt.Errorf("reading MCP proxy output: %w", err)
+	}
+
+	line := strings.TrimSpace(string(buf[:n]))
+	var output struct {
+		Port int `json:"port"`
+	}
+	if err := json.Unmarshal([]byte(line), &output); err != nil {
+		cmd.Process.Kill()
+		return 0, 0, fmt.Errorf("parsing MCP proxy output: %w", err)
+	}
+
+	return cmd.Process.Pid, output.Port, nil
 }

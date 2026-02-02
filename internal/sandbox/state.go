@@ -22,6 +22,8 @@ type State struct {
 	ProjectDir      string                `json:"project_dir"`
 	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`
 	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
+	MCPProxyPID     int                   `json:"mcp_proxy_pid,omitempty"`
+	MCPProxyPort    int                   `json:"mcp_proxy_port,omitempty"`
 }
 
 func LoadState(projectDir string) (*State, error) {

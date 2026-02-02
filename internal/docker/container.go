@@ -207,6 +207,29 @@ func ExecApp(name string, command []string) error {
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
+// InjectMCPConfig writes a .mcp.json file into the Claude container so Claude Code
+// can connect to the host MCP server.
+func InjectMCPConfig(claudeContainer string, mcpPort int) error {
+	mcpConfig := fmt.Sprintf(`{
+  "mcpServers": {
+    "cbox-host": {
+      "type": "http",
+      "url": "http://host.docker.internal:%d/mcp"
+    }
+  }
+}
+`, mcpPort)
+
+	writeCmd := "cat > /workspace/.mcp.json && chown claude:claude /workspace/.mcp.json"
+	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
+	cmd.Stdin = strings.NewReader(mcpConfig)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("writing .mcp.json: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // StopAndRemove stops and removes a container.
 func StopAndRemove(name string) error {
 	stop := exec.Command("docker", "stop", name)

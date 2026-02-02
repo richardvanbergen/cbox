@@ -1,0 +1,3 @@
+dockerfile: ./Dockerfile
+env:
+    - ANTHROPIC_API_KEY

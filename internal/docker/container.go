@@ -207,6 +207,49 @@ func ExecApp(name string, command []string) error {
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
+// InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
+// ~/.claude/CLAUDE.md so Claude Code understands the container environment.
+func InjectClaudeMD(claudeContainer string, hostCommands []string) error {
+	var hostCmdSection string
+	if len(hostCommands) > 0 {
+		hostCmdSection = fmt.Sprintf(`
+
+## Host Commands (MCP)
+
+You have access to a "cbox-host" MCP server that can run commands on the host machine.
+The following commands are whitelisted: %s
+
+When you need to run any of these commands (e.g. git, gh), you MUST use the run_command
+tool from the cbox-host MCP server instead of running them directly. Direct execution
+will fail or produce incorrect results because you are inside a container.
+
+Before running a command, check that it is in the whitelist above. If the user asks you
+to run a command that is not whitelisted, inform them that the command is not available
+and they need to add it to the host_commands list in their .cbox.yml configuration.`, strings.Join(hostCommands, ", "))
+	}
+
+	claudeMD := fmt.Sprintf(`You are currently executing inside a cbox container environment.
+
+This means you do NOT have direct access to the host machine's filesystem, git
+repositories, or CLI tools. Everything you run executes inside a Docker container.
+
+Key things to know:
+- The /workspace directory is a mounted volume from the host
+- You do not have direct internet access beyond what Docker networking provides
+- Most host CLI tools (git, gh, etc.) are not available inside this container
+- The app container is accessible via the cbox-run/cbox-test wrapper commands%s
+`, hostCmdSection)
+
+	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
+	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
+	cmd.Stdin = strings.NewReader(claudeMD)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("writing CLAUDE.md: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // InjectMCPConfig writes a .mcp.json file into the Claude container so Claude Code
 // can connect to the host MCP server.
 func InjectMCPConfig(claudeContainer string, mcpPort int) error {

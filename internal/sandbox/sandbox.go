@@ -109,7 +109,13 @@ func Up(projectDir, branch string) error {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
-	// 9.5 Inject MCP config into Claude container if MCP proxy is running
+	// 9.5 Inject system CLAUDE.md into Claude container
+	fmt.Println("Injecting system CLAUDE.md...")
+	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands); err != nil {
+		fmt.Printf("Warning: could not inject CLAUDE.md: %v\n", err)
+	}
+
+	// 9.6 Inject MCP config into Claude container if MCP proxy is running
 	if mcpPort > 0 {
 		fmt.Println("Injecting MCP config into Claude container...")
 		if err := docker.InjectMCPConfig(claudeContainerName, mcpPort); err != nil {

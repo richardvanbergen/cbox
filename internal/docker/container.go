@@ -273,6 +273,16 @@ func InjectMCPConfig(claudeContainer string, mcpPort int) error {
 	return nil
 }
 
+// IsRunning checks if a container is currently running.
+func IsRunning(name string) (bool, error) {
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name)
+	out, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "true", nil
+}
+
 // StopAndRemove stops and removes a container.
 func StopAndRemove(name string) error {
 	stop := exec.Command("docker", "stop", name)

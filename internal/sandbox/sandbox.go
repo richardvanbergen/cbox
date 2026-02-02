@@ -146,17 +146,17 @@ func Up(projectDir, branch string) error {
 		MCPProxyPID:     mcpPID,
 		MCPProxyPort:    mcpPort,
 	}
-	if err := SaveState(projectDir, state); err != nil {
+	if err := SaveState(projectDir, branch, state); err != nil {
 		return fmt.Errorf("saving state: %w", err)
 	}
 
-	fmt.Printf("\nSandbox is running! Use 'cbox chat' to start Claude.\n")
+	fmt.Printf("\nSandbox is running! Use 'cbox chat %s' to start Claude.\n", branch)
 	return nil
 }
 
 // Down stops both containers and removes the network.
-func Down(projectDir string) error {
-	state, err := LoadState(projectDir)
+func Down(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func Down(projectDir string) error {
 	fmt.Printf("Removing network %s...\n", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
 
-	if err := RemoveState(projectDir); err != nil {
+	if err := RemoveState(projectDir, branch); err != nil {
 		return fmt.Errorf("removing state: %w", err)
 	}
 
@@ -189,8 +189,8 @@ func Down(projectDir string) error {
 }
 
 // Chat launches Claude Code interactively in the Claude container.
-func Chat(projectDir string, chrome bool) error {
-	state, err := LoadState(projectDir)
+func Chat(projectDir, branch string, chrome bool) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -199,8 +199,8 @@ func Chat(projectDir string, chrome bool) error {
 }
 
 // ChatPrompt runs a one-shot Claude prompt in the Claude container.
-func ChatPrompt(projectDir, prompt string) error {
-	state, err := LoadState(projectDir)
+func ChatPrompt(projectDir, branch, prompt string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -209,8 +209,8 @@ func ChatPrompt(projectDir, prompt string) error {
 }
 
 // Exec runs a command in the app container. No command means interactive shell.
-func Exec(projectDir string, command []string) error {
-	state, err := LoadState(projectDir)
+func Exec(projectDir, branch string, command []string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -219,8 +219,8 @@ func Exec(projectDir string, command []string) error {
 }
 
 // Shell opens an interactive shell in the Claude container.
-func Shell(projectDir string) error {
-	state, err := LoadState(projectDir)
+func Shell(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -229,8 +229,8 @@ func Shell(projectDir string) error {
 }
 
 // Info prints the current sandbox state.
-func Info(projectDir string) error {
-	state, err := LoadState(projectDir)
+func Info(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -243,18 +243,9 @@ func Info(projectDir string) error {
 	return nil
 }
 
-// ActiveBranch returns the branch name from the current sandbox state, or empty string if none.
-func ActiveBranch(projectDir string) string {
-	state, err := LoadState(projectDir)
-	if err != nil {
-		return ""
-	}
-	return state.Branch
-}
-
 // Clean stops both containers, removes the network, worktree, and branch.
-func Clean(projectDir string) error {
-	state, err := LoadState(projectDir)
+func Clean(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
@@ -293,7 +284,7 @@ func Clean(projectDir string) error {
 	}
 
 	// Remove state
-	RemoveState(projectDir)
+	RemoveState(projectDir, branch)
 
 	fmt.Println("Sandbox cleaned up.")
 	return nil

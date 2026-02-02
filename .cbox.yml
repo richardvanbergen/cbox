@@ -1,0 +1,6 @@
+dockerfile: ./Dockerfile
+env:
+  - ANTHROPIC_API_KEY
+host_commands:
+  - git
+  - gh

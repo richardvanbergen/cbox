@@ -6,9 +6,9 @@ import (
 
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
+	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/sandbox"
-	"github.com/richvanbergen/cbox/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -68,39 +68,23 @@ func initCmd() *cobra.Command {
 }
 
 func upCmd() *cobra.Command {
-	var branch string
-
-	cmd := &cobra.Command{
-		Use:   "up",
+	return &cobra.Command{
+		Use:   "up <branch>",
 		Short: "Create worktree, build images, and start sandboxed container",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := projectDir()
-			if branch == "" {
-				state, err := sandbox.LoadState(dir)
-				if err == nil {
-					branch = state.Branch
-				} else {
-					current, err := worktree.CurrentBranch(dir)
-					if err != nil {
-						return fmt.Errorf("could not detect branch: %w", err)
-					}
-					branch = current
-				}
-			}
-			return sandbox.Up(dir, branch)
+			return sandbox.Up(projectDir(), args[0])
 		},
 	}
-
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch name for the worktree")
-	return cmd
 }
 
 func downCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "down",
+		Use:   "down <branch>",
 		Short: "Stop the sandboxed container (keeps worktree)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Down(projectDir())
+			return sandbox.Down(projectDir(), args[0])
 		},
 	}
 }
@@ -109,10 +93,12 @@ func chatCmd() *cobra.Command {
 	var prompt string
 
 	cmd := &cobra.Command{
-		Use:   "chat",
+		Use:   "chat <branch>",
 		Short: "Start Claude Code in the sandbox (interactive or one-shot with -p)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
+			branch := args[0]
 
 			var chrome bool
 			if cfg, err := config.Load(dir); err == nil {
@@ -120,9 +106,9 @@ func chatCmd() *cobra.Command {
 			}
 
 			if prompt != "" {
-				return sandbox.ChatPrompt(dir, prompt)
+				return sandbox.ChatPrompt(dir, branch, prompt)
 			}
-			return sandbox.Chat(dir, chrome)
+			return sandbox.Chat(dir, branch, chrome)
 		},
 	}
 
@@ -132,10 +118,13 @@ func chatCmd() *cobra.Command {
 
 func execCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "exec [command...]",
-		Short: "Run a command in the app container (no args for interactive shell)",
+		Use:   "exec <branch> [command...]",
+		Short: "Run a command in the app container (no command args for interactive shell)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Exec(projectDir(), args)
+			if len(args) < 1 {
+				return fmt.Errorf("requires at least 1 arg: the branch name")
+			}
+			return sandbox.Exec(projectDir(), args[0], args[1:])
 		},
 		DisableFlagParsing: true,
 	}
@@ -143,10 +132,11 @@ func execCmd() *cobra.Command {
 
 func shellCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "shell",
+		Use:   "shell <branch>",
 		Short: "Open a shell in the Claude container (for debugging)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Shell(projectDir())
+			return sandbox.Shell(projectDir(), args[0])
 		},
 	}
 }
@@ -154,15 +144,28 @@ func shellCmd() *cobra.Command {
 func listCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List all git worktrees",
+		Short: "List all tracked sandboxes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
-			active := sandbox.ActiveBranch(dir)
-			out, err := worktree.List(dir, active)
+			states, err := sandbox.ListStates(dir)
 			if err != nil {
 				return err
 			}
-			fmt.Println(out)
+
+			if len(states) == 0 {
+				fmt.Println("No active sandboxes.")
+				return nil
+			}
+
+			for _, s := range states {
+				status := "unknown"
+				if running, _ := docker.IsRunning(s.ClaudeContainer); running {
+					status = "running"
+				} else {
+					status = "stopped"
+				}
+				fmt.Printf("%-30s %s\n", s.Branch, status)
+			}
 			return nil
 		},
 	}
@@ -170,20 +173,22 @@ func listCmd() *cobra.Command {
 
 func infoCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "info",
+		Use:   "info <branch>",
 		Short: "Show current sandbox status",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Info(projectDir())
+			return sandbox.Info(projectDir(), args[0])
 		},
 	}
 }
 
 func cleanCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "clean",
+		Use:   "clean <branch>",
 		Short: "Stop container, remove worktree and branch",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Clean(projectDir())
+			return sandbox.Clean(projectDir(), args[0])
 		},
 	}
 }

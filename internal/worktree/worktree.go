@@ -28,12 +28,13 @@ func Create(projectDir, branch string) (string, error) {
 		return wtPath, nil
 	}
 
-	cmd := exec.Command("git", "worktree", "add", wtPath, "-b", branch)
+	// Try checking out existing branch first
+	cmd := exec.Command("git", "worktree", "add", wtPath, branch)
 	cmd.Dir = projectDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// Branch might already exist, try without -b
-		cmd = exec.Command("git", "worktree", "add", wtPath, branch)
+		// Branch doesn't exist, create it
+		cmd = exec.Command("git", "worktree", "add", wtPath, "-b", branch)
 		cmd.Dir = projectDir
 		out, err = cmd.CombinedOutput()
 		if err != nil {
@@ -56,8 +57,7 @@ func Remove(projectDir, wtPath string) error {
 }
 
 // List returns the git worktree list for the given project directory.
-// If activeBranch is non-empty, the matching line is prefixed with "* " and others with "  ".
-func List(projectDir, activeBranch string) (string, error) {
+func List(projectDir string) (string, error) {
 	cmd := exec.Command("git", "worktree", "list")
 	cmd.Dir = projectDir
 	out, err := cmd.CombinedOutput()
@@ -65,21 +65,7 @@ func List(projectDir, activeBranch string) (string, error) {
 		return "", fmt.Errorf("git worktree list: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if activeBranch == "" {
-		return strings.Join(lines, "\n"), nil
-	}
-
-	// Mark the active branch with an asterisk
-	bracketBranch := "[" + activeBranch + "]"
-	for i, line := range lines {
-		if strings.Contains(line, bracketBranch) {
-			lines[i] = "* " + line
-		} else {
-			lines[i] = "  " + line
-		}
-	}
-	return strings.Join(lines, "\n"), nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // CurrentBranch returns the current git branch name.

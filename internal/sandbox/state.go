@@ -21,6 +21,7 @@ type State struct {
 	ClaudeImage     string `json:"claude_image"`
 	AppImage        string `json:"app_image"`
 	ProjectDir      string                `json:"project_dir"`
+	Running         bool                  `json:"running"`
 	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`
 	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
 	MCPProxyPID     int                   `json:"mcp_proxy_pid,omitempty"`

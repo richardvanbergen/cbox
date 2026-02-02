@@ -28,12 +28,13 @@ func Create(projectDir, branch string) (string, error) {
 		return wtPath, nil
 	}
 
-	cmd := exec.Command("git", "worktree", "add", wtPath, "-b", branch)
+	// Try checking out existing branch first
+	cmd := exec.Command("git", "worktree", "add", wtPath, branch)
 	cmd.Dir = projectDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// Branch might already exist, try without -b
-		cmd = exec.Command("git", "worktree", "add", wtPath, branch)
+		// Branch doesn't exist, create it
+		cmd = exec.Command("git", "worktree", "add", wtPath, "-b", branch)
 		cmd.Dir = projectDir
 		out, err = cmd.CombinedOutput()
 		if err != nil {

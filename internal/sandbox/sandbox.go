@@ -141,6 +141,7 @@ func Up(projectDir, branch string) error {
 		ClaudeImage:     claudeImage,
 		AppImage:        appImage,
 		ProjectDir:      projectDir,
+		Running:         true,
 		BridgeProxyPID:  bridgePID,
 		BridgeMappings:  bridgeMappings,
 		MCPProxyPID:     mcpPID,
@@ -180,8 +181,14 @@ func Down(projectDir, branch string) error {
 	fmt.Printf("Removing network %s...\n", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
 
-	if err := RemoveState(projectDir, branch); err != nil {
-		return fmt.Errorf("removing state: %w", err)
+	// Mark as not running but preserve state so `clean` can still find the worktree
+	state.Running = false
+	state.BridgeProxyPID = 0
+	state.BridgeMappings = nil
+	state.MCPProxyPID = 0
+	state.MCPProxyPort = 0
+	if err := SaveState(projectDir, branch, state); err != nil {
+		return fmt.Errorf("saving state: %w", err)
 	}
 
 	fmt.Printf("Containers stopped. Worktree preserved at %s\n", state.WorktreePath)
@@ -250,26 +257,28 @@ func Clean(projectDir, branch string) error {
 		return err
 	}
 
-	// Stop bridge proxy if running
-	if state.BridgeProxyPID > 0 {
-		fmt.Println("Stopping Chrome bridge proxy...")
-		stopBridgeProxy(state.BridgeProxyPID)
+	if state.Running {
+		// Stop bridge proxy if running
+		if state.BridgeProxyPID > 0 {
+			fmt.Println("Stopping Chrome bridge proxy...")
+			stopBridgeProxy(state.BridgeProxyPID)
+		}
+
+		// Stop MCP proxy if running
+		if state.MCPProxyPID > 0 {
+			fmt.Println("Stopping MCP host command server...")
+			stopProcess(state.MCPProxyPID)
+		}
+
+		// Stop containers
+		fmt.Printf("Stopping containers...\n")
+		docker.StopAndRemove(state.ClaudeContainer)
+		docker.StopAndRemove(state.AppContainer)
+
+		// Remove network
+		fmt.Printf("Removing network %s...\n", state.NetworkName)
+		docker.RemoveNetwork(state.NetworkName)
 	}
-
-	// Stop MCP proxy if running
-	if state.MCPProxyPID > 0 {
-		fmt.Println("Stopping MCP host command server...")
-		stopProcess(state.MCPProxyPID)
-	}
-
-	// Stop containers
-	fmt.Printf("Stopping containers...\n")
-	docker.StopAndRemove(state.ClaudeContainer)
-	docker.StopAndRemove(state.AppContainer)
-
-	// Remove network
-	fmt.Printf("Removing network %s...\n", state.NetworkName)
-	docker.RemoveNetwork(state.NetworkName)
 
 	// Remove worktree
 	fmt.Printf("Removing worktree at %s...\n", state.WorktreePath)

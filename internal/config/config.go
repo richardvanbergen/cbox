@@ -16,6 +16,7 @@ type Config struct {
 	EnvFile      string            `yaml:"env_file,omitempty"`
 	Browser      bool              `yaml:"browser,omitempty"`
 	HostCommands []string          `yaml:"host_commands,omitempty"`
+	Dockerfile   string            `yaml:"dockerfile,omitempty"`
 }
 
 func DefaultConfig() *Config {

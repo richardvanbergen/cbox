@@ -16,7 +16,8 @@ import (
 )
 
 // Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
-func Up(projectDir, branch string) error {
+// If rebuild is true, the image is built with --no-cache.
+func Up(projectDir, branch string, rebuild bool) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -35,7 +36,11 @@ func Up(projectDir, branch string) error {
 	// 2. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
 	fmt.Printf("Building Claude image %s...\n", claudeImage)
-	if err := docker.BuildClaudeImage(claudeImage); err != nil {
+	buildOpts := docker.BuildOptions{NoCache: rebuild}
+	if cfg.Dockerfile != "" {
+		buildOpts.ProjectDockerfile = filepath.Join(projectDir, cfg.Dockerfile)
+	}
+	if err := docker.BuildClaudeImage(claudeImage, buildOpts); err != nil {
 		return fmt.Errorf("building claude image: %w", err)
 	}
 

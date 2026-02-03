@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"path/filepath"
+
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
@@ -30,6 +32,7 @@ func main() {
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
 	root.AddCommand(runCmd())
+	root.AddCommand(ejectCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
 
@@ -71,14 +74,19 @@ func initCmd() *cobra.Command {
 }
 
 func upCmd() *cobra.Command {
-	return &cobra.Command{
+	var rebuild bool
+
+	cmd := &cobra.Command{
 		Use:   "up <branch>",
 		Short: "Create worktree and start sandboxed Claude container",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Up(projectDir(), args[0])
+			return sandbox.Up(projectDir(), args[0], rebuild)
 		},
 	}
+
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force a clean image rebuild (--no-cache)")
+	return cmd
 }
 
 func downCmd() *cobra.Command {
@@ -221,6 +229,50 @@ Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
 			return c.Run()
+		},
+	}
+}
+
+func ejectCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "eject",
+		Short: "Copy the embedded Dockerfile into the project for customization",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := projectDir()
+
+			cfg, err := config.Load(dir)
+			if err != nil {
+				return fmt.Errorf("could not load %s — run 'cbox init' first: %w", config.ConfigFile, err)
+			}
+
+			if cfg.Dockerfile != "" {
+				return fmt.Errorf("already ejected: %s references dockerfile %q", config.ConfigFile, cfg.Dockerfile)
+			}
+
+			data, err := docker.EmbeddedDockerfile()
+			if err != nil {
+				return fmt.Errorf("reading embedded Dockerfile: %w", err)
+			}
+
+			const filename = "Dockerfile.cbox"
+			header := "# Ejected from cbox. Edit freely.\n" +
+				"# Existing branches need rebuilding: cbox up --rebuild <branch>\n" +
+				"# The entrypoint.sh remains managed by cbox and is injected at build time.\n\n"
+
+			outPath := filepath.Join(dir, filename)
+			if err := os.WriteFile(outPath, []byte(header+string(data)), 0644); err != nil {
+				return fmt.Errorf("writing %s: %w", filename, err)
+			}
+
+			cfg.Dockerfile = filename
+			if err := cfg.Save(dir); err != nil {
+				return fmt.Errorf("updating %s: %w", config.ConfigFile, err)
+			}
+
+			fmt.Printf("Created %s and updated %s.\n", filename, config.ConfigFile)
+			fmt.Println("Edit Dockerfile.cbox to customize the container image.")
+			fmt.Println("Rebuild existing branches with: cbox up --rebuild <branch>")
+			return nil
 		},
 	}
 }

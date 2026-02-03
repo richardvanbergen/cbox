@@ -13,13 +13,11 @@ import (
 const StateDir = ".cbox"
 
 type State struct {
-	ClaudeContainer string `json:"claude_container"`
-	AppContainer    string `json:"app_container"`
-	NetworkName     string `json:"network_name"`
-	WorktreePath    string `json:"worktree_path"`
-	Branch          string `json:"branch"`
-	ClaudeImage     string `json:"claude_image"`
-	AppImage        string `json:"app_image"`
+	ClaudeContainer string                `json:"claude_container"`
+	NetworkName     string                `json:"network_name"`
+	WorktreePath    string                `json:"worktree_path"`
+	Branch          string                `json:"branch"`
+	ClaudeImage     string                `json:"claude_image"`
 	ProjectDir      string                `json:"project_dir"`
 	Running         bool                  `json:"running"`
 	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`

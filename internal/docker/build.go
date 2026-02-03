@@ -12,23 +12,6 @@ import (
 //go:embed templates/Dockerfile.claude.tmpl templates/entrypoint.sh
 var claudeFiles embed.FS
 
-// BuildBaseImage builds the user's production image from their Dockerfile.
-func BuildBaseImage(contextDir, dockerfile, target, imageName string) error {
-	args := []string{"build", "-f", dockerfile, "-t", imageName}
-	if target != "" {
-		args = append(args, "--target", target)
-	}
-	args = append(args, contextDir)
-
-	cmd := exec.Command("docker", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("building base image: %w", err)
-	}
-	return nil
-}
-
 // BuildClaudeImage builds the Claude container image from the embedded template.
 func BuildClaudeImage(imageName string) error {
 	tmpDir, err := os.MkdirTemp("", "cbox-")

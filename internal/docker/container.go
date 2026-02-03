@@ -44,46 +44,8 @@ func RemoveNetwork(name string) error {
 	return nil
 }
 
-// RunAppContainer starts the app container with sleep infinity, shared network, workspace mount, and port mappings.
-func RunAppContainer(name, image, network, worktreePath string, envVars []string, envFile string, ports []string) error {
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--network", network,
-		"--entrypoint", "",
-		"-v", worktreePath + ":/workspace",
-	}
-
-	for _, env := range envVars {
-		val := os.Getenv(env)
-		if val != "" {
-			args = append(args, "-e", env+"="+val)
-		}
-	}
-
-	if envFile != "" {
-		if _, err := os.Stat(envFile); err == nil {
-			args = append(args, "--env-file", envFile)
-		}
-	}
-
-	for _, p := range ports {
-		args = append(args, "-p", p)
-	}
-
-	args = append(args, image, "sleep", "infinity")
-
-	cmd := exec.Command("docker", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker run (app): %w", err)
-	}
-	return nil
-}
-
 // RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath, appContainerName string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping) error {
+func RunClaudeContainer(name, image, network, worktreePath string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping) error {
 	currentUser := os.Getenv("USER")
 
 	args := []string{
@@ -92,7 +54,6 @@ func RunClaudeContainer(name, image, network, worktreePath, appContainerName str
 		"--network", network,
 		"-v", worktreePath + ":/workspace",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-e", "CBOX_APP_CONTAINER=" + appContainerName,
 	}
 
 	// Extract Claude Code OAuth credentials from macOS Keychain and pass to container
@@ -134,25 +95,6 @@ func RunClaudeContainer(name, image, network, worktreePath, appContainerName str
 	return nil
 }
 
-// InstallCommands writes wrapper scripts into the Claude container for each named command.
-// Each script executes the corresponding command in the app container via docker exec.
-func InstallCommands(claudeContainer string, commands map[string]string) error {
-	for name, command := range commands {
-		scriptPath := "/home/claude/bin/cbox-" + name
-		script := "#!/bin/bash\nexec docker exec -i \"$CBOX_APP_CONTAINER\" sh -c '" + command + "'\n"
-
-		// Pipe script content via stdin to avoid shell escaping issues
-		writeCmd := fmt.Sprintf("cat > %s && chmod +x %s", scriptPath, scriptPath)
-		cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
-		cmd.Stdin = strings.NewReader(script)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("installing command %q: %s: %w", name, strings.TrimSpace(string(out)), err)
-		}
-	}
-	return nil
-}
-
 // Shell execs into a running container with an interactive shell.
 func Shell(name string) error {
 	dockerPath, err := exec.LookPath("docker")
@@ -190,26 +132,9 @@ func ChatPrompt(name, prompt string) error {
 	return cmd.Run()
 }
 
-// ExecApp runs a command in the app container interactively.
-// If no command is given, it opens a shell.
-func ExecApp(name string, command []string) error {
-	dockerPath, err := exec.LookPath("docker")
-	if err != nil {
-		return fmt.Errorf("docker not found: %w", err)
-	}
-
-	args := []string{"docker", "exec", "-it", name}
-	if len(command) == 0 {
-		args = append(args, "sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh")
-	} else {
-		args = append(args, command...)
-	}
-	return syscall.Exec(dockerPath, args, os.Environ())
-}
-
 // InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
 // ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string) error {
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string) error {
 	var hostCmdSection string
 	if len(hostCommands) > 0 {
 		hostCmdSection = fmt.Sprintf(`
@@ -228,6 +153,22 @@ to run a command that is not whitelisted, inform them that the command is not av
 and they need to add it to the host_commands list in their .cbox.yml configuration.`, strings.Join(hostCommands, ", "))
 	}
 
+	var namedCmdSection string
+	if len(namedCommands) > 0 {
+		var lines []string
+		for name, expr := range namedCommands {
+			lines = append(lines, fmt.Sprintf("- cbox_%s: %s", name, expr))
+		}
+		namedCmdSection = fmt.Sprintf(`
+
+## Project Commands (MCP)
+
+The following project commands are available as MCP tools:
+%s
+
+Use these tools to build, run, and test the project.`, strings.Join(lines, "\n"))
+	}
+
 	claudeMD := fmt.Sprintf(`You are currently executing inside a cbox container environment.
 
 This means you do NOT have direct access to the host machine's filesystem, git
@@ -236,9 +177,8 @@ repositories, or CLI tools. Everything you run executes inside a Docker containe
 Key things to know:
 - The /workspace directory is a mounted volume from the host
 - You do not have direct internet access beyond what Docker networking provides
-- Most host CLI tools (git, gh, etc.) are not available inside this container
-- The app container is accessible via the cbox-run/cbox-test wrapper commands%s
-`, hostCmdSection)
+- Most host CLI tools (git, gh, etc.) are not available inside this container%s%s
+`, hostCmdSection, namedCmdSection)
 
 	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)

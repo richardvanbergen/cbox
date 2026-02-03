@@ -16,23 +16,26 @@ import (
 
 const commandTimeout = 120 * time.Second
 
-// Server is an MCP server that exposes a run_command tool for whitelisted commands.
+// Server is an MCP server that exposes a run_command tool for whitelisted commands
+// and dedicated tools for named project commands.
 type Server struct {
-	worktreePath string
-	allowedCmds  map[string]bool
-	listener     net.Listener
-	httpServer   *http.Server
+	worktreePath  string
+	allowedCmds   map[string]bool
+	namedCommands map[string]string
+	listener      net.Listener
+	httpServer    *http.Server
 }
 
 // NewServer creates a new MCP host command server.
-func NewServer(worktreePath string, commands []string) *Server {
+func NewServer(worktreePath string, commands []string, namedCommands map[string]string) *Server {
 	allowed := make(map[string]bool, len(commands))
 	for _, c := range commands {
 		allowed[c] = true
 	}
 	return &Server{
-		worktreePath: worktreePath,
-		allowedCmds:  allowed,
+		worktreePath:  worktreePath,
+		allowedCmds:   allowed,
+		namedCommands: namedCommands,
 	}
 }
 
@@ -50,7 +53,14 @@ func (s *Server) Start() (int, error) {
 		server.WithToolCapabilities(false),
 	)
 
-	mcpServer.AddTool(s.toolDefinition(), s.handleRunCommand)
+	if len(s.allowedCmds) > 0 {
+		mcpServer.AddTool(s.toolDefinition(), s.handleRunCommand)
+	}
+
+	// Register each named command as a dedicated tool
+	for name, expr := range s.namedCommands {
+		mcpServer.AddTool(s.namedToolDefinition(name, expr), s.makeNamedCommandHandler(expr))
+	}
 
 	httpTransport := server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
 
@@ -159,6 +169,45 @@ func (s *Server) handleRunCommand(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError(result), nil
 	}
 	return mcp.NewToolResultText(result), nil
+}
+
+// namedToolDefinition creates an MCP tool definition for a named project command.
+func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
+	desc := fmt.Sprintf("Run the project's %s command: %s", name, expr)
+	return mcp.NewTool(
+		"cbox_"+name,
+		mcp.WithDescription(desc),
+	)
+}
+
+// makeNamedCommandHandler returns an MCP handler that runs the given shell expression.
+func (s *Server) makeNamedCommandHandler(expr string) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(execCtx, "sh", "-c", expr)
+		cmd.Dir = s.worktreePath
+
+		output, err := cmd.CombinedOutput()
+
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else if execCtx.Err() == context.DeadlineExceeded {
+				return mcp.NewToolResultError("command timed out after 120 seconds"), nil
+			} else {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
+			}
+		}
+
+		result := fmt.Sprintf("exit_code: %d\n%s", exitCode, string(output))
+		if exitCode != 0 {
+			return mcp.NewToolResultError(result), nil
+		}
+		return mcp.NewToolResultText(result), nil
+	}
 }
 
 // translatePath converts /workspace/... paths to the host worktree path.

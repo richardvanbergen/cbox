@@ -11,20 +11,22 @@ import (
 const ConfigFile = ".cbox.yml"
 
 type Config struct {
-	Dockerfile string            `yaml:"dockerfile"`
-	Target     string            `yaml:"target,omitempty"`
-	Commands   map[string]string `yaml:"commands,omitempty"`
-	Env        []string          `yaml:"env,omitempty"`
-	EnvFile    string            `yaml:"env_file,omitempty"`
-	Ports        []string          `yaml:"ports,omitempty"`
+	Commands     map[string]string `yaml:"commands,omitempty"`
+	Env          []string          `yaml:"env,omitempty"`
+	EnvFile      string            `yaml:"env_file,omitempty"`
 	Browser      bool              `yaml:"browser,omitempty"`
 	HostCommands []string          `yaml:"host_commands,omitempty"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Dockerfile: "./Dockerfile",
-		Env:        []string{"ANTHROPIC_API_KEY"},
+		Commands: map[string]string{
+			"build": "echo 'TODO: set your build command'",
+			"test":  "echo 'TODO: set your test command'",
+			"run":   "echo 'TODO: set your run command'",
+		},
+		Env:          []string{"ANTHROPIC_API_KEY"},
+		HostCommands: []string{"git", "gh"},
 	}
 }
 

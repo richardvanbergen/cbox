@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
@@ -22,11 +25,11 @@ func main() {
 	root.AddCommand(upCmd())
 	root.AddCommand(downCmd())
 	root.AddCommand(chatCmd())
-	root.AddCommand(execCmd())
 	root.AddCommand(shellCmd())
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
+	root.AddCommand(runCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
 
@@ -61,7 +64,7 @@ func initCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Created %s\n", config.ConfigFile)
-			fmt.Println("Edit the file to configure your Dockerfile path, target, env vars, and ports.")
+			fmt.Println("Edit the file to configure your commands, env vars, and host commands.")
 			return nil
 		},
 	}
@@ -70,7 +73,7 @@ func initCmd() *cobra.Command {
 func upCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "up <branch>",
-		Short: "Create worktree, build images, and start sandboxed container",
+		Short: "Create worktree and start sandboxed Claude container",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Up(projectDir(), args[0])
@@ -114,20 +117,6 @@ func chatCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
 	return cmd
-}
-
-func execCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "exec <branch> [command...]",
-		Short: "Run a command in the app container (no command args for interactive shell)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) < 1 {
-				return fmt.Errorf("requires at least 1 arg: the branch name")
-			}
-			return sandbox.Exec(projectDir(), args[0], args[1:])
-		},
-		DisableFlagParsing: true,
-	}
 }
 
 func shellCmd() *cobra.Command {
@@ -193,21 +182,71 @@ func cleanCmd() *cobra.Command {
 	}
 }
 
+func runCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "run <command>",
+		Short: "Run a named command from .cbox.yml",
+		Long: `Run a named command defined in the commands section of .cbox.yml.
+For example, if your config has:
+
+  commands:
+    build: "go build ./..."
+    test: "go test ./..."
+
+Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := projectDir()
+			cfg, err := config.Load(dir)
+			if err != nil {
+				return err
+			}
+
+			name := args[0]
+			expr, ok := cfg.Commands[name]
+			if !ok {
+				available := make([]string, 0, len(cfg.Commands))
+				for k := range cfg.Commands {
+					available = append(available, k)
+				}
+				if len(available) == 0 {
+					return fmt.Errorf("no commands defined in %s", config.ConfigFile)
+				}
+				return fmt.Errorf("unknown command %q (available: %s)", name, strings.Join(available, ", "))
+			}
+
+			c := exec.Command("sh", "-c", expr)
+			c.Dir = dir
+			c.Stdin = os.Stdin
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			return c.Run()
+		},
+	}
+}
+
 func mcpProxyCmd() *cobra.Command {
 	var worktreePath string
+	var commandsJSON string
 
 	cmd := &cobra.Command{
-		Use:    "_mcp-proxy [commands...]",
-		Short:  "Internal: MCP server for host commands",
+		Use:    "_mcp-proxy [host-commands...]",
+		Short:  "Internal: MCP server for host and project commands",
 		Hidden: true,
-		Args:   cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return hostcmd.RunProxyCommand(worktreePath, args)
+			var namedCommands map[string]string
+			if commandsJSON != "" {
+				if err := json.Unmarshal([]byte(commandsJSON), &namedCommands); err != nil {
+					return fmt.Errorf("parsing --commands JSON: %w", err)
+				}
+			}
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands)
 		},
 	}
 
 	cmd.Flags().StringVar(&worktreePath, "worktree", "", "Host worktree path for path translation")
 	cmd.MarkFlagRequired("worktree")
+	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
 	return cmd
 }
 

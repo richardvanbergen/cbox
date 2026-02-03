@@ -15,7 +15,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/worktree"
 )
 
-// Up creates a worktree, builds images, creates a network, and starts two containers.
+// Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
 func Up(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -32,47 +32,31 @@ func Up(projectDir, branch string) error {
 	}
 	fmt.Printf("Worktree ready at %s\n", wtPath)
 
-	// 2. Build app image (user's Dockerfile)
-	appImage := docker.ImageName(projectName, "app")
-	fmt.Printf("Building app image %s...\n", appImage)
-	dockerfile := filepath.Join(projectDir, cfg.Dockerfile)
-	if err := docker.BuildBaseImage(projectDir, dockerfile, cfg.Target, appImage); err != nil {
-		return fmt.Errorf("building app image: %w", err)
-	}
-
-	// 3. Build Claude image
+	// 2. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
 	fmt.Printf("Building Claude image %s...\n", claudeImage)
 	if err := docker.BuildClaudeImage(claudeImage); err != nil {
 		return fmt.Errorf("building claude image: %w", err)
 	}
 
-	// 4. Create Docker network
+	// 3. Create Docker network
 	networkName := docker.NetworkName(projectName, branch)
 	fmt.Printf("Creating network %s...\n", networkName)
 	if err := docker.CreateNetwork(networkName); err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
-	// 5. Stop/remove existing containers
-	appContainerName := docker.ContainerName(projectName, branch, "app")
+	// 4. Stop/remove existing Claude container
 	claudeContainerName := docker.ContainerName(projectName, branch, "claude")
-	docker.StopAndRemove(appContainerName)
 	docker.StopAndRemove(claudeContainerName)
 
-	// 6. Resolve env file path
+	// 5. Resolve env file path
 	envFile := ""
 	if cfg.EnvFile != "" {
 		envFile = filepath.Join(projectDir, cfg.EnvFile)
 	}
 
-	// 7. Start App container
-	fmt.Printf("Starting app container %s...\n", appContainerName)
-	if err := docker.RunAppContainer(appContainerName, appImage, networkName, wtPath, cfg.Env, envFile, cfg.Ports); err != nil {
-		return fmt.Errorf("starting app container: %w", err)
-	}
-
-	// 7.5 Start Chrome bridge proxy if browser is enabled and bridge sockets exist on the host
+	// 6. Start Chrome bridge proxy if browser is enabled and bridge sockets exist on the host
 	var bridgePID int
 	var bridgeMappings []bridge.ProxyMapping
 	if cfg.Browser {
@@ -91,11 +75,11 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
-	// 8. Start MCP host command proxy if configured
+	// 7. Start MCP proxy if host_commands or commands are configured
 	var mcpPID, mcpPort int
-	if len(cfg.HostCommands) > 0 {
+	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		fmt.Println("Starting MCP host command server...")
-		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands)
+		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands, cfg.Commands)
 		if err != nil {
 			fmt.Printf("Warning: MCP host command server failed: %v\n", err)
 		} else {
@@ -103,19 +87,19 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
-	// 9. Start Claude container
+	// 8. Start Claude container
 	fmt.Printf("Starting Claude container %s...\n", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, appContainerName, cfg.Env, envFile, bridgeMappings); err != nil {
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, cfg.Env, envFile, bridgeMappings); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
-	// 9.5 Inject system CLAUDE.md into Claude container
+	// 9. Inject system CLAUDE.md into Claude container
 	fmt.Println("Injecting system CLAUDE.md...")
-	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands); err != nil {
+	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands, cfg.Commands); err != nil {
 		fmt.Printf("Warning: could not inject CLAUDE.md: %v\n", err)
 	}
 
-	// 9.6 Inject MCP config into Claude container if MCP proxy is running
+	// 10. Inject MCP config into Claude container if MCP proxy is running
 	if mcpPort > 0 {
 		fmt.Println("Injecting MCP config into Claude container...")
 		if err := docker.InjectMCPConfig(claudeContainerName, mcpPort); err != nil {
@@ -123,23 +107,13 @@ func Up(projectDir, branch string) error {
 		}
 	}
 
-	// 10. Install named command scripts
-	if len(cfg.Commands) > 0 {
-		fmt.Printf("Installing %d command(s)...\n", len(cfg.Commands))
-		if err := docker.InstallCommands(claudeContainerName, cfg.Commands); err != nil {
-			return fmt.Errorf("installing commands: %w", err)
-		}
-	}
-
 	// 11. Save state
 	state := &State{
 		ClaudeContainer: claudeContainerName,
-		AppContainer:    appContainerName,
 		NetworkName:     networkName,
 		WorktreePath:    wtPath,
 		Branch:          branch,
 		ClaudeImage:     claudeImage,
-		AppImage:        appImage,
 		ProjectDir:      projectDir,
 		Running:         true,
 		BridgeProxyPID:  bridgePID,
@@ -155,7 +129,7 @@ func Up(projectDir, branch string) error {
 	return nil
 }
 
-// Down stops both containers and removes the network.
+// Down stops the container and removes the network.
 func Down(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
@@ -174,9 +148,8 @@ func Down(projectDir, branch string) error {
 		stopProcess(state.MCPProxyPID)
 	}
 
-	fmt.Printf("Stopping containers...\n")
+	fmt.Printf("Stopping container...\n")
 	docker.StopAndRemove(state.ClaudeContainer)
-	docker.StopAndRemove(state.AppContainer)
 
 	fmt.Printf("Removing network %s...\n", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
@@ -191,7 +164,7 @@ func Down(projectDir, branch string) error {
 		return fmt.Errorf("saving state: %w", err)
 	}
 
-	fmt.Printf("Containers stopped. Worktree preserved at %s\n", state.WorktreePath)
+	fmt.Printf("Container stopped. Worktree preserved at %s\n", state.WorktreePath)
 	return nil
 }
 
@@ -215,16 +188,6 @@ func ChatPrompt(projectDir, branch, prompt string) error {
 	return docker.ChatPrompt(state.ClaudeContainer, prompt)
 }
 
-// Exec runs a command in the app container. No command means interactive shell.
-func Exec(projectDir, branch string, command []string) error {
-	state, err := LoadState(projectDir, branch)
-	if err != nil {
-		return err
-	}
-
-	return docker.ExecApp(state.AppContainer, command)
-}
-
 // Shell opens an interactive shell in the Claude container.
 func Shell(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)
@@ -245,12 +208,11 @@ func Info(projectDir, branch string) error {
 	fmt.Printf("Branch:           %s\n", state.Branch)
 	fmt.Printf("Worktree:         %s\n", state.WorktreePath)
 	fmt.Printf("Claude container: %s\n", state.ClaudeContainer)
-	fmt.Printf("App container:    %s\n", state.AppContainer)
 	fmt.Printf("Network:          %s\n", state.NetworkName)
 	return nil
 }
 
-// Clean stops both containers, removes the network, worktree, and branch.
+// Clean stops the container, removes the network, worktree, and branch.
 func Clean(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
@@ -270,10 +232,9 @@ func Clean(projectDir, branch string) error {
 			stopProcess(state.MCPProxyPID)
 		}
 
-		// Stop containers
-		fmt.Printf("Stopping containers...\n")
+		// Stop container
+		fmt.Printf("Stopping container...\n")
 		docker.StopAndRemove(state.ClaudeContainer)
-		docker.StopAndRemove(state.AppContainer)
 
 		// Remove network
 		fmt.Printf("Removing network %s...\n", state.NetworkName)
@@ -357,14 +318,25 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(worktreePath string, commands []string) (int, int, error) {
+func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map[string]string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
 	}
 
 	args := []string{"_mcp-proxy", "--worktree", worktreePath}
-	args = append(args, commands...)
+
+	// Pass named commands as JSON via --commands flag
+	if len(namedCommands) > 0 {
+		cmdJSON, err := json.Marshal(namedCommands)
+		if err != nil {
+			return 0, 0, fmt.Errorf("marshaling commands: %w", err)
+		}
+		args = append(args, "--commands", string(cmdJSON))
+	}
+
+	// Host commands are passed as positional args
+	args = append(args, hostCommands...)
 
 	cmd := exec.Command(selfPath, args...)
 	cmd.Stderr = os.Stderr

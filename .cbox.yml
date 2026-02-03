@@ -1,6 +1,9 @@
-dockerfile: ./Dockerfile
+commands:
+    build: go build -o bin/cbox ./cmd/cbox
+    test: go test ./...
+    run: go run ./cmd/cbox
 env:
-  - ANTHROPIC_API_KEY
+    - ANTHROPIC_API_KEY
 host_commands:
-  - git
-  - gh
+    - git
+    - gh

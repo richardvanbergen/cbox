@@ -58,7 +58,25 @@ func initSession(t *testing.T, url string) {
 
 func startTestServer(t *testing.T, worktree string, commands []string) (string, *Server) {
 	t.Helper()
-	srv := NewServer(worktree, commands)
+	srv := NewServer(worktree, commands, nil)
+	port, err := srv.Start()
+	if err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() { srv.Stop() })
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
+
+	// Wait briefly for server to be ready
+	time.Sleep(50 * time.Millisecond)
+
+	initSession(t, url)
+	return url, srv
+}
+
+func startTestServerWithNamedCommands(t *testing.T, worktree string, commands []string, namedCommands map[string]string) (string, *Server) {
+	t.Helper()
+	srv := NewServer(worktree, commands, namedCommands)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("start server: %v", err)
@@ -79,6 +97,14 @@ func callTool(t *testing.T, url string, args map[string]any) map[string]any {
 	return sendMCPRequest(t, url, "tools/call", map[string]any{
 		"name":      "run_command",
 		"arguments": args,
+	})
+}
+
+func callNamedTool(t *testing.T, url string, toolName string) map[string]any {
+	t.Helper()
+	return sendMCPRequest(t, url, "tools/call", map[string]any{
+		"name":      toolName,
+		"arguments": map[string]any{},
 	})
 }
 
@@ -120,7 +146,7 @@ func TestNonWhitelistedCommandRejected(t *testing.T) {
 }
 
 func TestPathTranslation(t *testing.T) {
-	srv := NewServer("/host/project", []string{"echo"})
+	srv := NewServer("/host/project", []string{"echo"}, nil)
 
 	tests := []struct {
 		input    string
@@ -174,6 +200,40 @@ func TestCommandTimeout(t *testing.T) {
 	content := extractTextContent(t, result)
 	if !bytes.Contains([]byte(content), []byte("exit_code: 0")) {
 		t.Errorf("expected exit_code: 0, got: %s", content)
+	}
+}
+
+func TestNamedCommandExecutes(t *testing.T) {
+	dir := t.TempDir()
+	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
+		"test": "echo named-test-output",
+	})
+
+	result := callNamedTool(t, url, "cbox_test")
+
+	content := extractTextContent(t, result)
+	if content == "" {
+		t.Fatal("expected non-empty content")
+	}
+	if !bytes.Contains([]byte(content), []byte("named-test-output")) {
+		t.Errorf("expected output to contain 'named-test-output', got: %s", content)
+	}
+	if !bytes.Contains([]byte(content), []byte("exit_code: 0")) {
+		t.Errorf("expected exit_code: 0, got: %s", content)
+	}
+}
+
+func TestNamedCommandFailure(t *testing.T) {
+	dir := t.TempDir()
+	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
+		"fail": "exit 1",
+	})
+
+	result := callNamedTool(t, url, "cbox_fail")
+
+	content := extractTextContent(t, result)
+	if !bytes.Contains([]byte(content), []byte("exit_code: 1")) {
+		t.Errorf("expected exit_code: 1, got: %s", content)
 	}
 }
 

@@ -36,6 +36,43 @@ go build -o bin/cbox ./cmd/cbox
 
 Requires Docker.
 
+## Shell Completion
+
+cbox supports shell completion for bash, zsh, and fish. Completions include commands, flags, git branches, and config-defined commands.
+
+### Bash
+
+```bash
+# Load for current session
+source <(cbox completion bash)
+
+# Install permanently (Linux)
+cbox completion bash > /etc/bash_completion.d/cbox
+
+# Install permanently (macOS with Homebrew)
+cbox completion bash > $(brew --prefix)/etc/bash_completion.d/cbox
+```
+
+### Zsh
+
+```bash
+# Enable completion (add to ~/.zshrc if not already enabled)
+autoload -U compinit; compinit
+
+# Install completion
+cbox completion zsh > "${fpath[1]}/_cbox"
+```
+
+### Fish
+
+```fish
+# Load for current session
+cbox completion fish | source
+
+# Install permanently
+cbox completion fish > ~/.config/fish/completions/cbox.fish
+```
+
 ## Quick start
 
 ```bash
@@ -126,6 +163,10 @@ Shows details about a specific sandbox (container name, network, worktree path).
 ### `cbox clean <branch>`
 
 Stops the container, removes the network, deletes the worktree, and removes the branch.
+
+### `cbox completion [bash|zsh|fish]`
+
+Generates shell completion scripts. See [Shell Completion](#shell-completion) for installation instructions.
 
 ## How named commands work
 

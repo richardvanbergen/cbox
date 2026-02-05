@@ -33,6 +33,7 @@ func main() {
 	root.AddCommand(cleanCmd())
 	root.AddCommand(runCmd())
 	root.AddCommand(ejectCmd())
+	root.AddCommand(completionCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
 
@@ -48,6 +49,56 @@ func projectDir() string {
 		os.Exit(1)
 	}
 	return dir
+}
+
+// branchCompletion returns a completion function that suggests git branches.
+func branchCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		out, err := exec.Command("git", "branch", "--format=%(refname:short)").Output()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		branches := strings.Split(strings.TrimSpace(string(out)), "\n")
+		var completions []string
+		for _, b := range branches {
+			if b != "" && strings.HasPrefix(b, toComplete) {
+				completions = append(completions, b)
+			}
+		}
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// configCommandCompletion returns a completion function that suggests commands from .cbox.yml.
+func configCommandCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		cfg, err := config.Load(dir)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		var completions []string
+		for name := range cfg.Commands {
+			if strings.HasPrefix(name, toComplete) {
+				completions = append(completions, name)
+			}
+		}
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 func initCmd() *cobra.Command {
@@ -77,9 +128,10 @@ func upCmd() *cobra.Command {
 	var rebuild bool
 
 	cmd := &cobra.Command{
-		Use:   "up <branch>",
-		Short: "Create worktree and start sandboxed Claude container",
-		Args:  cobra.ExactArgs(1),
+		Use:               "up <branch>",
+		Short:             "Create worktree and start sandboxed Claude container",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Up(projectDir(), args[0], rebuild)
 		},
@@ -91,9 +143,10 @@ func upCmd() *cobra.Command {
 
 func downCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "down <branch>",
-		Short: "Stop the sandboxed container (keeps worktree)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "down <branch>",
+		Short:             "Stop the sandboxed container (keeps worktree)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Down(projectDir(), args[0])
 		},
@@ -104,9 +157,10 @@ func chatCmd() *cobra.Command {
 	var prompt string
 
 	cmd := &cobra.Command{
-		Use:   "chat <branch>",
-		Short: "Start Claude Code in the sandbox (interactive or one-shot with -p)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "chat <branch>",
+		Short:             "Start Claude Code in the sandbox (interactive or one-shot with -p)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 			branch := args[0]
@@ -129,9 +183,10 @@ func chatCmd() *cobra.Command {
 
 func shellCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "shell <branch>",
-		Short: "Open a shell in the Claude container (for debugging)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "shell <branch>",
+		Short:             "Open a shell in the Claude container (for debugging)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Shell(projectDir(), args[0])
 		},
@@ -170,9 +225,10 @@ func listCmd() *cobra.Command {
 
 func infoCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "info <branch>",
-		Short: "Show current sandbox status",
-		Args:  cobra.ExactArgs(1),
+		Use:               "info <branch>",
+		Short:             "Show current sandbox status",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Info(projectDir(), args[0])
 		},
@@ -181,9 +237,10 @@ func infoCmd() *cobra.Command {
 
 func cleanCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "clean <branch>",
-		Short: "Stop container, remove worktree and branch",
-		Args:  cobra.ExactArgs(1),
+		Use:               "clean <branch>",
+		Short:             "Stop container, remove worktree and branch",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Clean(projectDir(), args[0])
 		},
@@ -202,7 +259,8 @@ For example, if your config has:
     test: "go test ./..."
 
 Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: configCommandCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 			cfg, err := config.Load(dir)
@@ -275,6 +333,57 @@ func ejectCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func completionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish]",
+		Short: "Generate shell completion script",
+		Long: `Generate a shell completion script for cbox.
+
+To load completions:
+
+Bash:
+  $ source <(cbox completion bash)
+
+  # To load completions for each session, execute once:
+  # Linux:
+  $ cbox completion bash > /etc/bash_completion.d/cbox
+  # macOS:
+  $ cbox completion bash > $(brew --prefix)/etc/bash_completion.d/cbox
+
+Zsh:
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it. You can execute the following once:
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  # To load completions for each session, execute once:
+  $ cbox completion zsh > "${fpath[1]}/_cbox"
+
+  # You may need to start a new shell for this setup to take effect.
+
+Fish:
+  $ cbox completion fish | source
+
+  # To load completions for each session, execute once:
+  $ cbox completion fish > ~/.config/fish/completions/cbox.fish
+`,
+		DisableFlagsInUseLine: true,
+		ValidArgs:             []string{"bash", "zsh", "fish"},
+		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return cmd.Root().GenBashCompletion(os.Stdout)
+			case "zsh":
+				return cmd.Root().GenZshCompletion(os.Stdout)
+			case "fish":
+				return cmd.Root().GenFishCompletion(os.Stdout, true)
+			}
+			return nil
+		},
+	}
+	return cmd
 }
 
 func mcpProxyCmd() *cobra.Command {

@@ -134,7 +134,7 @@ func ChatPrompt(name, prompt string) error {
 
 // InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
 // ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string) error {
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, extras ...string) error {
 	var hostCmdSection string
 	if len(hostCommands) > 0 {
 		hostCmdSection = fmt.Sprintf(`
@@ -169,6 +169,11 @@ The following project commands are available as MCP tools:
 Use these tools to build, run, and test the project.`, strings.Join(lines, "\n"))
 	}
 
+	var extraSections string
+	for _, e := range extras {
+		extraSections += e
+	}
+
 	claudeMD := fmt.Sprintf(`You are currently executing inside a cbox container environment.
 
 This means you do NOT have direct access to the host machine's filesystem, git
@@ -177,8 +182,8 @@ repositories, or CLI tools. Everything you run executes inside a Docker containe
 Key things to know:
 - The /workspace directory is a mounted volume from the host
 - You do not have direct internet access beyond what Docker networking provides
-- Most host CLI tools (git, gh, etc.) are not available inside this container%s%s
-`, hostCmdSection, namedCmdSection)
+- Most host CLI tools (git, gh, etc.) are not available inside this container%s%s%s
+`, hostCmdSection, namedCmdSection, extraSections)
 
 	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)

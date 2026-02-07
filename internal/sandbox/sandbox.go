@@ -15,9 +15,20 @@ import (
 	"github.com/richvanbergen/cbox/internal/worktree"
 )
 
+// UpOptions configures optional behavior for sandbox creation.
+type UpOptions struct {
+	Rebuild   bool
+	ReportDir string // If set, enables the cbox_report MCP tool
+}
+
 // Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
 // If rebuild is true, the image is built with --no-cache.
 func Up(projectDir, branch string, rebuild bool) error {
+	return UpWithOptions(projectDir, branch, UpOptions{Rebuild: rebuild})
+}
+
+// UpWithOptions creates a sandbox with additional options.
+func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -36,7 +47,7 @@ func Up(projectDir, branch string, rebuild bool) error {
 	// 2. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
 	fmt.Printf("Building Claude image %s...\n", claudeImage)
-	buildOpts := docker.BuildOptions{NoCache: rebuild}
+	buildOpts := docker.BuildOptions{NoCache: opts.Rebuild}
 	if cfg.Dockerfile != "" {
 		buildOpts.ProjectDockerfile = filepath.Join(projectDir, cfg.Dockerfile)
 	}
@@ -84,7 +95,7 @@ func Up(projectDir, branch string, rebuild bool) error {
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		fmt.Println("Starting MCP host command server...")
-		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands, cfg.Commands)
+		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir)
 		if err != nil {
 			fmt.Printf("Warning: MCP host command server failed: %v\n", err)
 		} else {
@@ -323,7 +334,7 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map[string]string) (int, int, error) {
+func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
@@ -338,6 +349,11 @@ func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map
 			return 0, 0, fmt.Errorf("marshaling commands: %w", err)
 		}
 		args = append(args, "--commands", string(cmdJSON))
+	}
+
+	// Pass report dir if set
+	if reportDir != "" {
+		args = append(args, "--report-dir", reportDir)
 	}
 
 	// Host commands are passed as positional args

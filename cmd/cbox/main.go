@@ -14,6 +14,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/sandbox"
+	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +35,7 @@ func main() {
 	root.AddCommand(runCmd())
 	root.AddCommand(ejectCmd())
 	root.AddCommand(completionCmd())
+	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
 
@@ -173,7 +175,7 @@ func chatCmd() *cobra.Command {
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
 			}
-			return sandbox.Chat(dir, branch, chrome)
+			return sandbox.Chat(dir, branch, chrome, "")
 		},
 	}
 
@@ -386,9 +388,118 @@ Fish:
 	return cmd
 }
 
+func flowCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "flow",
+		Short: "Workflow orchestration for automated development flows",
+	}
+
+	cmd.AddCommand(flowInitCmd())
+	cmd.AddCommand(flowStartCmd())
+	cmd.AddCommand(flowStatusCmd())
+	cmd.AddCommand(flowChatCmd())
+	cmd.AddCommand(flowPRCmd())
+	cmd.AddCommand(flowMergeCmd())
+	cmd.AddCommand(flowAbandonCmd())
+
+	return cmd
+}
+
+func flowInitCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Add default workflow config to .cbox.yml",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowInit(projectDir())
+		},
+	}
+}
+
+func flowStartCmd() *cobra.Command {
+	var yolo bool
+
+	cmd := &cobra.Command{
+		Use:   "start <description>",
+		Short: "Begin a new workflow: create issue and sandbox",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowStart(projectDir(), args[0], yolo)
+		},
+	}
+
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
+	return cmd
+}
+
+func flowStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status [branch]",
+		Short: "Show status of active flows",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			branch := ""
+			if len(args) > 0 {
+				branch = args[0]
+			}
+			return workflow.FlowStatus(projectDir(), branch)
+		},
+	}
+}
+
+func flowChatCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "chat <branch>",
+		Short:             "Refresh task context and open interactive chat",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowChat(projectDir(), args[0])
+		},
+	}
+}
+
+func flowPRCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "pr <branch>",
+		Short:             "Create a pull request for the flow",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowPR(projectDir(), args[0])
+		},
+	}
+}
+
+func flowMergeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "merge <branch>",
+		Short:             "Merge the PR and clean up",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowMerge(projectDir(), args[0])
+		},
+	}
+}
+
+func flowAbandonCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "abandon <branch>",
+		Short:             "Cancel the flow and clean up",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowAbandon(projectDir(), args[0])
+		},
+	}
+}
+
 func mcpProxyCmd() *cobra.Command {
 	var worktreePath string
 	var commandsJSON string
+	var reportDir string
+	var flowProjectDir string
+	var flowBranch string
 
 	cmd := &cobra.Command{
 		Use:    "_mcp-proxy [host-commands...]",
@@ -401,13 +512,23 @@ func mcpProxyCmd() *cobra.Command {
 					return fmt.Errorf("parsing --commands JSON: %w", err)
 				}
 			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands)
+			var flow *hostcmd.FlowConfig
+			if flowProjectDir != "" && flowBranch != "" {
+				flow = &hostcmd.FlowConfig{
+					ProjectDir: flowProjectDir,
+					Branch:     flowBranch,
+				}
+			}
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, flow)
 		},
 	}
 
 	cmd.Flags().StringVar(&worktreePath, "worktree", "", "Host worktree path for path translation")
 	cmd.MarkFlagRequired("worktree")
 	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
+	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
+	cmd.Flags().StringVar(&flowProjectDir, "flow-project-dir", "", "Project dir for flow commands")
+	cmd.Flags().StringVar(&flowBranch, "flow-branch", "", "Branch name for flow commands")
 	return cmd
 }
 

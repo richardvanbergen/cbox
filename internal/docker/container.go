@@ -107,7 +107,8 @@ func Shell(name string) error {
 }
 
 // Chat execs into the Claude container and launches Claude Code interactively.
-func Chat(name string, chrome bool) error {
+// If initialPrompt is provided, it is sent as the first message in the conversation.
+func Chat(name string, chrome bool, initialPrompt string) error {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
 		return fmt.Errorf("docker not found: %w", err)
@@ -116,6 +117,9 @@ func Chat(name string, chrome bool) error {
 	args := []string{"docker", "exec", "-it", "-u", "claude", name, "claude", "--dangerously-skip-permissions"}
 	if chrome {
 		args = append(args, "--chrome")
+	}
+	if initialPrompt != "" {
+		args = append(args, initialPrompt)
 	}
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
@@ -134,51 +138,127 @@ func ChatPrompt(name, prompt string) error {
 
 // InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
 // ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string) error {
-	var hostCmdSection string
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, extras ...string) error {
+	var sections []string
+
+	// Base environment section
+	sections = append(sections, `# CBox Container Environment
+
+You are running inside a CBox sandbox — a Docker container purpose-built for
+isolated development. You do NOT have direct access to the host machine.
+
+## What you have
+
+- /workspace is a mounted git worktree from the host
+- Docker CLI is available (the host Docker socket is mounted)
+- bash, curl, git (local only — see below), ca-certificates, socat
+- Your MCP tools (see below) are your primary way to interact with the project
+
+## What you do NOT have
+
+- No language runtimes (no node, bun, python, go, cargo, etc.)
+- No package managers beyond apt (no npm, pip, brew, etc.)
+- No direct internet access beyond Docker networking
+- No direct access to the host filesystem, git, or CLI tools
+- Do NOT run apt-get install — the container is ephemeral and changes are lost on rebuild`)
+
+	// Host commands section
 	if len(hostCommands) > 0 {
-		hostCmdSection = fmt.Sprintf(`
+		hostSection := fmt.Sprintf(`## Host Commands (MCP)
 
-## Host Commands (MCP)
+You have a "cbox-host" MCP server that runs commands on the HOST machine.
+Whitelisted commands: %s
 
-You have access to a "cbox-host" MCP server that can run commands on the host machine.
-The following commands are whitelisted: %s
+IMPORTANT:
+- You MUST use the run_command MCP tool for these — do not run them directly
+- Direct execution will fail or produce wrong results (wrong filesystem, wrong git repo)
+- The run_command tool executes in the host worktree, not inside this container`, strings.Join(hostCommands, ", "))
 
-When you need to run any of these commands (e.g. git, gh), you MUST use the run_command
-tool from the cbox-host MCP server instead of running them directly. Direct execution
-will fail or produce incorrect results because you are inside a container.
+		// Add gh-specific tips if gh is in the whitelist
+		for _, cmd := range hostCommands {
+			if cmd == "gh" {
+				hostSection += `
 
-Before running a command, check that it is in the whitelist above. If the user asks you
-to run a command that is not whitelisted, inform them that the command is not available
-and they need to add it to the host_commands list in their .cbox.yml configuration.`, strings.Join(hostCommands, ", "))
+### gh CLI tips
+- ALWAYS use --json with gh issue view and gh pr view to avoid deprecated API errors
+  Example: gh issue view 123 --json title,body,labels,state
+- The default (non-JSON) output triggers a sunsetted Projects Classic API and will fail`
+				break
+			}
+		}
+
+		sections = append(sections, hostSection)
 	}
 
-	var namedCmdSection string
+	// Named commands section
 	if len(namedCommands) > 0 {
 		var lines []string
 		for name, expr := range namedCommands {
-			lines = append(lines, fmt.Sprintf("- cbox_%s: %s", name, expr))
+			lines = append(lines, fmt.Sprintf("- cbox_%s: `%s`", name, expr))
 		}
-		namedCmdSection = fmt.Sprintf(`
+		sections = append(sections, fmt.Sprintf(`## Project Commands (MCP)
 
-## Project Commands (MCP)
-
-The following project commands are available as MCP tools:
+These MCP tools run on the host and are your primary way to build, test, and run the project:
 %s
 
-Use these tools to build, run, and test the project.`, strings.Join(lines, "\n"))
+Use these instead of trying to run build/test commands directly in the container.`, strings.Join(lines, "\n")))
 	}
 
-	claudeMD := fmt.Sprintf(`You are currently executing inside a cbox container environment.
+	// Self-healing section
+	sections = append(sections, `## When something is missing
 
-This means you do NOT have direct access to the host machine's filesystem, git
-repositories, or CLI tools. Everything you run executes inside a Docker container.
+If you need a tool, runtime, or command that is not available, DO NOT try to install
+it inside the container. Instead, choose one of the strategies below.
 
-Key things to know:
-- The /workspace directory is a mounted volume from the host
-- You do not have direct internet access beyond what Docker networking provides
-- Most host CLI tools (git, gh, etc.) are not available inside this container%s%s
-`, hostCmdSection, namedCmdSection)
+Present these options to the user and let them decide which approach they prefer.
+
+### Quick: run it via Docker
+
+The Docker socket is mounted, so you can run any tool via a Docker image right now
+without reconfiguring anything:
+`+"```bash"+`
+# Run a command using a runtime image — /workspace is shared with the host
+docker run --rm -v /workspace:/workspace -w /workspace node:20 npm install
+docker run --rm -v /workspace:/workspace -w /workspace golang:1.23 go test ./...
+docker run --rm -v /workspace:/workspace -w /workspace python:3.12 python script.py
+`+"```"+`
+This is immediate but ephemeral — installed packages don't persist between runs.
+For services (databases, redis, etc.), use docker run -d to keep them running.
+
+### Permanent: configure cbox
+
+These changes go in .cbox.yml and persist across sessions. After any change,
+the user must rebuild: `+"`cbox up <branch> --rebuild`"+`
+
+**Add a host command** — expose a tool already installed on the host machine:
+`+"```yaml"+`
+host_commands:
+  - git
+  - gh
+  - bun        # add the tool you need
+`+"```"+`
+
+**Add or update project commands** — define build/test/run as MCP tools:
+`+"```yaml"+`
+commands:
+  build: "go build ./..."
+  test: "go test ./..."
+  run: "go run ./cmd/myapp"
+`+"```"+`
+
+**Use a custom Dockerfile** — bake runtimes or system packages into the container:
+`+"```yaml"+`
+dockerfile: .cbox.Dockerfile
+`+"```"+`
+The user creates a Dockerfile that installs what's needed (e.g. node, python, etc.)
+and references it in .cbox.yml. This makes the tools available directly in the container.`)
+
+	// Extra sections (e.g. task assignment from workflow)
+	for _, e := range extras {
+		sections = append(sections, e)
+	}
+
+	claudeMD := strings.Join(sections, "\n\n") + "\n"
 
 	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
@@ -186,6 +266,17 @@ Key things to know:
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("writing CLAUDE.md: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// AppendClaudeMD appends text to the CLAUDE.md file inside the Claude container.
+func AppendClaudeMD(claudeContainer, text string) error {
+	cmd := exec.Command("docker", "exec", claudeContainer,
+		"sh", "-c", `printf '\n%s\n' "$0" >> /home/claude/.claude/CLAUDE.md`, text)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("appending to CLAUDE.md: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

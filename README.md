@@ -198,6 +198,78 @@ With this config, Claude can run `git status`, `gh pr create`, etc. on the host 
 
 Path arguments containing `/workspace/...` are automatically translated to the host worktree path, and paths outside the worktree are rejected.
 
+## Workflow (`cbox flow`)
+
+Workflow orchestration for task-driven development. Creates an issue, spins up a sandbox, and provides the inner Claude with task context — the inner Claude drives the work, the flow system handles issue tracking.
+
+### Setup
+
+```bash
+# Add workflow config to .cbox.yml (defaults use gh CLI)
+cbox flow init
+```
+
+### Usage
+
+```bash
+# Create issue + sandbox + task context
+cbox flow start "Add user authentication"
+
+# Open interactive chat (refreshes task from issue)
+cbox flow chat add-user-authentication
+
+# Create PR when done
+cbox flow pr add-user-authentication
+
+# Merge and clean up
+cbox flow merge add-user-authentication
+
+# Or abandon the flow
+cbox flow abandon add-user-authentication
+
+# Check status
+cbox flow status
+cbox flow status add-user-authentication
+```
+
+### Yolo mode
+
+Run fully autonomous — creates issue, starts sandbox, sends a headless prompt, and opens a PR:
+
+```bash
+cbox flow start --yolo "Add user authentication"
+```
+
+### How it works
+
+1. **`flow start`** — Slugifies the description into a branch name, creates a GitHub issue, starts a sandbox with the `cbox_report` MCP tool enabled, fetches issue content via `gh issue view`, writes a `.cbox-task` file into the worktree, and appends a task pointer to the container's `CLAUDE.md`.
+
+2. **`flow chat`** — Refreshes `.cbox-task` from the latest issue content, then opens an interactive Claude session. The inner Claude reads `/workspace/.cbox-task` for task details and calls `cbox_report` when done.
+
+3. **`flow pr`** / **`flow merge`** — Creates a PR (using done report as description if available), then merges and cleans up.
+
+### Workflow config
+
+The `workflow` section of `.cbox.yml` controls issue tracking commands:
+
+```yaml
+workflow:
+  branch: "{{.Slug}}"
+  issue:
+    create: 'gh issue create --title "{{.Title}}" --body "{{.Description}}" | grep -o ''[0-9]*$'''
+    view: 'gh issue view {{.IssueID}}'
+    close: 'gh issue close {{.IssueID}}'
+    set_status: 'gh issue edit {{.IssueID}} --add-label "{{.Status}}"'
+    comment: 'gh issue comment {{.IssueID}} --body "{{.Body}}"'
+  pr:
+    create: 'gh pr create --title "{{.Title}}" --body "{{.Description}}"'
+    merge: 'gh pr merge {{.PRURL}} --merge'
+  prompts:
+    yolo: "custom prompt for --yolo mode (optional)"
+```
+
+All commands are Go templates. Replace with your issue tracker's CLI as needed.
+
 ## Docker resources
 
 Per sandbox, cbox creates:

@@ -30,6 +30,7 @@ type WorkflowConfig struct {
 type WorkflowIssueConfig struct {
 	Create    string `yaml:"create,omitempty"`
 	View      string `yaml:"view,omitempty"`
+	Close     string `yaml:"close,omitempty"`
 	SetStatus string `yaml:"set_status,omitempty"`
 	Comment   string `yaml:"comment,omitempty"`
 }
@@ -61,6 +62,7 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 		Issue: &WorkflowIssueConfig{
 			Create:    `gh issue create --title "{{.Title}}" --body "{{.Description}}" | grep -o '[0-9]*$'`,
 			View:      `gh issue view {{.IssueID}}`,
+			Close:     `gh issue close {{.IssueID}}`,
 			SetStatus: `gh issue edit {{.IssueID}} --add-label "{{.Status}}"`,
 			Comment:   `gh issue comment {{.IssueID}} --body "{{.Body}}"`,
 		},

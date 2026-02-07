@@ -258,6 +258,7 @@ workflow:
   issue:
     create: 'gh issue create --title "{{.Title}}" --body "{{.Description}}" | grep -o ''[0-9]*$'''
     view: 'gh issue view {{.IssueID}}'
+    close: 'gh issue close {{.IssueID}}'
     set_status: 'gh issue edit {{.IssueID}} --add-label "{{.Status}}"'
     comment: 'gh issue comment {{.IssueID}} --body "{{.Body}}"'
   pr:

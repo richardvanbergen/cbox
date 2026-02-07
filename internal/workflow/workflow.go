@@ -336,12 +336,19 @@ func FlowMerge(projectDir, branch string) error {
 		fmt.Println("No PR merge command configured — merge manually.")
 	}
 
-	// Update issue status
-	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.SetStatus != "" {
-		runShellCommand(wf.Issue.SetStatus, map[string]string{
-			"IssueID": state.IssueID,
-			"Status":  "done",
-		})
+	// Update and close issue
+	if state.IssueID != "" && wf != nil && wf.Issue != nil {
+		if wf.Issue.SetStatus != "" {
+			runShellCommand(wf.Issue.SetStatus, map[string]string{
+				"IssueID": state.IssueID,
+				"Status":  "done",
+			})
+		}
+		if wf.Issue.Close != "" {
+			runShellCommand(wf.Issue.Close, map[string]string{
+				"IssueID": state.IssueID,
+			})
+		}
 	}
 
 	// Clean up sandbox
@@ -427,12 +434,19 @@ func FlowAbandon(projectDir, branch string) error {
 
 	wf := cfg.Workflow
 
-	// Update issue status to cancelled
-	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.SetStatus != "" {
-		runShellCommand(wf.Issue.SetStatus, map[string]string{
-			"IssueID": state.IssueID,
-			"Status":  "cancelled",
-		})
+	// Close and label the issue
+	if state.IssueID != "" && wf != nil && wf.Issue != nil {
+		if wf.Issue.SetStatus != "" {
+			runShellCommand(wf.Issue.SetStatus, map[string]string{
+				"IssueID": state.IssueID,
+				"Status":  "cancelled",
+			})
+		}
+		if wf.Issue.Close != "" {
+			runShellCommand(wf.Issue.Close, map[string]string{
+				"IssueID": state.IssueID,
+			})
+		}
 	}
 
 	// Clean up sandbox

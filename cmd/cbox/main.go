@@ -397,7 +397,7 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowInitCmd())
 	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
-	cmd.AddCommand(flowContinueCmd())
+	cmd.AddCommand(flowChatCmd())
 	cmd.AddCommand(flowPRCmd())
 	cmd.AddCommand(flowMergeCmd())
 	cmd.AddCommand(flowAbandonCmd())
@@ -446,14 +446,14 @@ func flowStatusCmd() *cobra.Command {
 	}
 }
 
-func flowContinueCmd() *cobra.Command {
+func flowChatCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:               "continue <branch>",
-		Short:             "Resume after plan review: run execution phase",
+		Use:               "chat <branch>",
+		Short:             "Refresh task context and open interactive chat",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowContinue(projectDir(), args[0])
+			return workflow.FlowChat(projectDir(), args[0])
 		},
 	}
 }

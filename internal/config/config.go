@@ -29,6 +29,7 @@ type WorkflowConfig struct {
 
 type WorkflowIssueConfig struct {
 	Create    string `yaml:"create,omitempty"`
+	View      string `yaml:"view,omitempty"`
 	SetStatus string `yaml:"set_status,omitempty"`
 	Comment   string `yaml:"comment,omitempty"`
 }
@@ -39,8 +40,7 @@ type WorkflowPRConfig struct {
 }
 
 type WorkflowPromptConfig struct {
-	Research string `yaml:"research,omitempty"`
-	Execute  string `yaml:"execute,omitempty"`
+	Yolo string `yaml:"yolo,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -60,6 +60,7 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 		Branch: "{{.Slug}}",
 		Issue: &WorkflowIssueConfig{
 			Create:    `gh issue create --title "{{.Title}}" --body "{{.Description}}" | grep -o '[0-9]*$'`,
+			View:      `gh issue view {{.IssueID}}`,
 			SetStatus: `gh issue edit {{.IssueID}} --add-label "{{.Status}}"`,
 			Comment:   `gh issue comment {{.IssueID}} --body "{{.Body}}"`,
 		},

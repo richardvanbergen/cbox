@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/richvanbergen/cbox/internal/config"
+	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 )
@@ -39,7 +40,7 @@ func FlowInit(projectDir string) error {
 	return nil
 }
 
-// FlowStart begins a new workflow: creates issue, sandbox, and optionally runs all phases.
+// FlowStart begins a new workflow: creates issue, sandbox, writes task file, and sets up context.
 func FlowStart(projectDir, description string, yolo bool) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -77,15 +78,11 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	}
 
 	// Create flow state
-	phase := "sandbox_ready"
-	if yolo {
-		phase = "research"
-	}
 	state := &FlowState{
 		Branch:      branch,
 		Title:       description,
 		Description: description,
-		Phase:       phase,
+		Phase:       "started",
 		IssueID:     issueID,
 		AutoMode:    yolo,
 		CreatedAt:   time.Now(),
@@ -103,6 +100,39 @@ func FlowStart(projectDir, description string, yolo bool) error {
 		return fmt.Errorf("starting sandbox: %w", err)
 	}
 
+	// Get worktree path from sandbox state
+	sandboxState, err := sandbox.LoadState(projectDir, branch)
+	if err != nil {
+		return fmt.Errorf("loading sandbox state: %w", err)
+	}
+
+	// Fetch issue content and write task file
+	var issueContent string
+	if issueID != "" && wf.Issue != nil && wf.Issue.View != "" {
+		fmt.Println("Fetching issue content...")
+		issueContent, err = runShellCommand(wf.Issue.View, map[string]string{
+			"IssueID": issueID,
+		})
+		if err != nil {
+			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+		}
+	}
+
+	if err := writeTaskFile(sandboxState.WorktreePath, issueID, issueContent); err != nil {
+		return fmt.Errorf("writing task file: %w", err)
+	}
+
+	// Append task pointer to container's CLAUDE.md
+	taskInstruction := `
+## Task Assignment
+
+You have been assigned a task. Read ` + "`/workspace/.cbox-task`" + ` for the full issue details.
+When you are done, call the ` + "`cbox_report`" + ` MCP tool with type "done" to report your results.`
+
+	if err := docker.AppendClaudeMD(sandboxState.ClaudeContainer, taskInstruction); err != nil {
+		fmt.Printf("Warning: could not append task instruction to CLAUDE.md: %v\n", err)
+	}
+
 	// Update issue status
 	if issueID != "" && wf.Issue != nil && wf.Issue.SetStatus != "" {
 		runShellCommand(wf.Issue.SetStatus, map[string]string{
@@ -112,27 +142,38 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	}
 
 	if !yolo {
-		fmt.Printf("\nSandbox ready. Use 'cbox chat %s' to work interactively.\n", branch)
-		fmt.Printf("Or run 'cbox flow continue %s' to start the research phase.\n", branch)
+		fmt.Printf("\nSandbox ready. Run 'cbox flow chat %s' to begin.\n", branch)
 		return nil
 	}
 
-	// Yolo mode: run research → execute → PR
-	if err := flowResearch(projectDir, cfg, state, repDir); err != nil {
-		return err
+	// Yolo mode: run headless prompt then create PR
+	taskContent := description
+	if issueContent != "" {
+		taskContent = issueContent
 	}
 
-	fmt.Println("Continuing to execution...")
-	if err := flowExecute(projectDir, cfg, state, repDir); err != nil {
-		return err
+	var customYolo string
+	if wf.Prompts != nil {
+		customYolo = wf.Prompts.Yolo
+	}
+	prompt, err := renderPrompt(defaultYoloPrompt, customYolo, map[string]string{
+		"TaskContent": taskContent,
+	})
+	if err != nil {
+		return fmt.Errorf("rendering yolo prompt: %w", err)
+	}
+
+	fmt.Println("Running in yolo mode...")
+	if err := sandbox.ChatPrompt(projectDir, branch, prompt); err != nil {
+		return fmt.Errorf("yolo execution failed: %w", err)
 	}
 
 	fmt.Println("Creating PR...")
 	return FlowPR(projectDir, branch)
 }
 
-// FlowContinue resumes the flow from its current phase.
-func FlowContinue(projectDir, branch string) error {
+// FlowChat refreshes the task file from the issue and opens an interactive chat.
+func FlowChat(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -143,160 +184,49 @@ func FlowContinue(projectDir, branch string) error {
 		return err
 	}
 
-	repDir := reportDir(projectDir, branch)
-
-	switch state.Phase {
-	case "sandbox_ready":
-		if err := flowResearch(projectDir, cfg, state, repDir); err != nil {
-			return err
-		}
-		fmt.Printf("Review the plan, then run: cbox flow continue %s\n", branch)
-		return nil
-	case "plan_review":
-		return flowExecute(projectDir, cfg, state, repDir)
-	default:
-		return fmt.Errorf("flow is in %q phase — cannot continue from here", state.Phase)
-	}
-}
-
-// flowResearch runs the research phase and transitions to plan_review.
-func flowResearch(projectDir string, cfg *config.Config, state *FlowState, repDir string) error {
 	wf := cfg.Workflow
 
-	state.Phase = "research"
-	if err := SaveFlowState(projectDir, state); err != nil {
-		return fmt.Errorf("saving flow state: %w", err)
-	}
-
-	fmt.Println("Running research phase...")
-	var customResearch string
-	if wf != nil && wf.Prompts != nil {
-		customResearch = wf.Prompts.Research
-	}
-	prompt, err := renderPrompt(defaultResearchPrompt, customResearch, map[string]string{
-		"Title":       state.Title,
-		"Description": state.Description,
-	})
+	// Get worktree path from sandbox state
+	sandboxState, err := sandbox.LoadState(projectDir, branch)
 	if err != nil {
-		return fmt.Errorf("rendering research prompt: %w", err)
+		return fmt.Errorf("loading sandbox state: %w", err)
 	}
 
-	if err := sandbox.ChatPrompt(projectDir, state.Branch, prompt); err != nil {
-		return fmt.Errorf("research phase failed: %w", err)
-	}
-
-	// Read plan from reports
-	reports, err := hostcmd.LoadReports(repDir)
-	if err != nil {
-		fmt.Printf("Warning: could not read reports: %v\n", err)
-	}
-
-	var planReport *hostcmd.Report
-	for i := range reports {
-		if reports[i].Type == "plan" {
-			planReport = &reports[i]
-		}
-	}
-
-	state.Phase = "plan_review"
-	if err := SaveFlowState(projectDir, state); err != nil {
-		return fmt.Errorf("saving flow state: %w", err)
-	}
-
-	if planReport != nil {
-		fmt.Printf("\n--- Plan: %s ---\n%s\n---\n\n", planReport.Title, planReport.Body)
-	} else {
-		fmt.Println("\nResearch complete. No plan report received — check the sandbox for details.")
-	}
-
-	return nil
-}
-
-// flowExecute runs the execution phase of the workflow.
-func flowExecute(projectDir string, cfg *config.Config, state *FlowState, repDir string) error {
-	wf := cfg.Workflow
-
-	// Read the plan from reports
-	reports, err := hostcmd.LoadReports(repDir)
-	if err != nil {
-		return fmt.Errorf("reading reports: %w", err)
-	}
-
-	var plan string
-	for _, r := range reports {
-		if r.Type == "plan" {
-			plan = r.Body
-		}
-	}
-
-	if plan == "" {
-		fmt.Println("Warning: no plan found in reports, proceeding with title/description only")
-	}
-
-	// Update state
-	state.Phase = "executing"
-	if err := SaveFlowState(projectDir, state); err != nil {
-		return fmt.Errorf("saving flow state: %w", err)
-	}
-
-	// Run execution prompt
-	var customExecute string
-	if wf != nil && wf.Prompts != nil {
-		customExecute = wf.Prompts.Execute
-	}
-	prompt, err := renderPrompt(defaultExecutePrompt, customExecute, map[string]string{
-		"Title":       state.Title,
-		"Description": state.Description,
-		"Plan":        plan,
-	})
-	if err != nil {
-		return fmt.Errorf("rendering execute prompt: %w", err)
-	}
-
-	fmt.Println("Running execution phase...")
-	if err := sandbox.ChatPrompt(projectDir, state.Branch, prompt); err != nil {
-		return fmt.Errorf("execution phase failed: %w", err)
-	}
-
-	// Read done report
-	reports, err = hostcmd.LoadReports(repDir)
-	if err != nil {
-		fmt.Printf("Warning: could not read reports: %v\n", err)
-	}
-
-	var doneReport *hostcmd.Report
-	for i := range reports {
-		if reports[i].Type == "done" {
-			doneReport = &reports[i]
-		}
-	}
-
-	// Update state
-	state.Phase = "pr_review"
-	if err := SaveFlowState(projectDir, state); err != nil {
-		return fmt.Errorf("saving flow state: %w", err)
-	}
-
-	if doneReport != nil {
-		fmt.Printf("\n--- Done: %s ---\n%s\n---\n\n", doneReport.Title, doneReport.Body)
-	} else {
-		fmt.Println("\nExecution complete. No done report received — check the sandbox for details.")
-	}
-
-	// Comment on issue
-	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.Comment != "" {
-		body := "Execution complete."
-		if doneReport != nil {
-			body = fmt.Sprintf("**%s**\n\n%s", doneReport.Title, doneReport.Body)
-		}
-		runShellCommand(wf.Issue.Comment, map[string]string{
+	// Refresh task file from issue
+	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.View != "" {
+		fmt.Println("Refreshing task from issue...")
+		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": state.IssueID,
-			"Body":    body,
 		})
+		if err != nil {
+			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+		} else {
+			if err := writeTaskFile(sandboxState.WorktreePath, state.IssueID, issueContent); err != nil {
+				fmt.Printf("Warning: could not update task file: %v\n", err)
+			}
+		}
 	}
 
-	fmt.Printf("Ready for PR. Run: cbox flow pr %s\n", state.Branch)
-	return nil
+	// Check if browser is enabled
+	var chrome bool
+	if cfg.Browser {
+		chrome = true
+	}
+
+	return sandbox.Chat(projectDir, branch, chrome)
+}
+
+// writeTaskFile writes a .cbox-task file to the worktree.
+func writeTaskFile(worktreePath, issueID, issueContent string) error {
+	var content string
+	if issueID != "" {
+		content = fmt.Sprintf("Issue: #%s\n\n%s\n", issueID, issueContent)
+	} else {
+		content = issueContent + "\n"
+	}
+
+	path := filepath.Join(worktreePath, ".cbox-task")
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // FlowPR creates a pull request for the flow.
@@ -311,8 +241,8 @@ func FlowPR(projectDir, branch string) error {
 		return err
 	}
 
-	if state.Phase != "pr_review" {
-		return fmt.Errorf("flow is in %q phase, expected pr_review", state.Phase)
+	if state.Phase == "done" || state.Phase == "abandoned" {
+		return fmt.Errorf("flow is in %q phase — cannot create PR", state.Phase)
 	}
 
 	wf := cfg.Workflow

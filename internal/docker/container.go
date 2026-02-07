@@ -195,6 +195,17 @@ Key things to know:
 	return nil
 }
 
+// AppendClaudeMD appends text to the CLAUDE.md file inside the Claude container.
+func AppendClaudeMD(claudeContainer, text string) error {
+	cmd := exec.Command("docker", "exec", claudeContainer,
+		"sh", "-c", `printf '\n%s\n' "$0" >> /home/claude/.claude/CLAUDE.md`, text)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("appending to CLAUDE.md: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // InjectMCPConfig writes a .mcp.json file into the Claude container so Claude Code
 // can connect to the host MCP server.
 func InjectMCPConfig(claudeContainer string, mcpPort int) error {

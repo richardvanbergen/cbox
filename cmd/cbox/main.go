@@ -175,7 +175,7 @@ func chatCmd() *cobra.Command {
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
 			}
-			return sandbox.Chat(dir, branch, chrome)
+			return sandbox.Chat(dir, branch, chrome, "")
 		},
 	}
 
@@ -498,6 +498,8 @@ func mcpProxyCmd() *cobra.Command {
 	var worktreePath string
 	var commandsJSON string
 	var reportDir string
+	var flowProjectDir string
+	var flowBranch string
 
 	cmd := &cobra.Command{
 		Use:    "_mcp-proxy [host-commands...]",
@@ -510,7 +512,14 @@ func mcpProxyCmd() *cobra.Command {
 					return fmt.Errorf("parsing --commands JSON: %w", err)
 				}
 			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir)
+			var flow *hostcmd.FlowConfig
+			if flowProjectDir != "" && flowBranch != "" {
+				flow = &hostcmd.FlowConfig{
+					ProjectDir: flowProjectDir,
+					Branch:     flowBranch,
+				}
+			}
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, flow)
 		},
 	}
 
@@ -518,6 +527,8 @@ func mcpProxyCmd() *cobra.Command {
 	cmd.MarkFlagRequired("worktree")
 	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
 	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
+	cmd.Flags().StringVar(&flowProjectDir, "flow-project-dir", "", "Project dir for flow commands")
+	cmd.Flags().StringVar(&flowBranch, "flow-branch", "", "Branch name for flow commands")
 	return cmd
 }
 

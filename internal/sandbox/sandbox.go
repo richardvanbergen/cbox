@@ -17,8 +17,9 @@ import (
 
 // UpOptions configures optional behavior for sandbox creation.
 type UpOptions struct {
-	Rebuild   bool
-	ReportDir string // If set, enables the cbox_report MCP tool
+	Rebuild    bool
+	ReportDir  string // If set, enables the cbox_report MCP tool
+	FlowBranch string // If set, enables flow MCP tools (cbox_flow_pr, etc.)
 }
 
 // Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
@@ -95,7 +96,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		fmt.Println("Starting MCP host command server...")
-		mcpPID, mcpPort, err = startMCPProxy(wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir)
+		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
 		if err != nil {
 			fmt.Printf("Warning: MCP host command server failed: %v\n", err)
 		} else {
@@ -185,13 +186,14 @@ func Down(projectDir, branch string) error {
 }
 
 // Chat launches Claude Code interactively in the Claude container.
-func Chat(projectDir, branch string, chrome bool) error {
+// If initialPrompt is provided, it is sent as the first message in the conversation.
+func Chat(projectDir, branch string, chrome bool, initialPrompt string) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
 
-	return docker.Chat(state.ClaudeContainer, chrome)
+	return docker.Chat(state.ClaudeContainer, chrome, initialPrompt)
 }
 
 // ChatPrompt runs a one-shot Claude prompt in the Claude container.
@@ -331,7 +333,7 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir string) (int, int, error) {
+func startMCPProxy(projectDir, worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
@@ -351,6 +353,11 @@ func startMCPProxy(worktreePath string, hostCommands []string, namedCommands map
 	// Pass report dir if set
 	if reportDir != "" {
 		args = append(args, "--report-dir", reportDir)
+	}
+
+	// Pass flow context if set
+	if flowBranch != "" {
+		args = append(args, "--flow-project-dir", projectDir, "--flow-branch", flowBranch)
 	}
 
 	// Host commands are passed as positional args

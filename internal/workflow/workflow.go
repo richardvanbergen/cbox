@@ -95,7 +95,8 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	repDir := reportDir(projectDir, branch)
 	fmt.Println("Starting sandbox...")
 	if err := sandbox.UpWithOptions(projectDir, branch, sandbox.UpOptions{
-		ReportDir: repDir,
+		ReportDir:  repDir,
+		FlowBranch: branch,
 	}); err != nil {
 		return fmt.Errorf("starting sandbox: %w", err)
 	}
@@ -122,12 +123,23 @@ func FlowStart(projectDir, description string, yolo bool) error {
 		return fmt.Errorf("writing task file: %w", err)
 	}
 
-	// Append task pointer to container's CLAUDE.md
+	// Append workflow instructions to container's CLAUDE.md
 	taskInstruction := `
-## Task Assignment
+## CBox Flow — Task Assignment
 
-You have been assigned a task. Read ` + "`/workspace/.cbox-task`" + ` for the full issue details.
-When you are done, call the ` + "`cbox_report`" + ` MCP tool with type "done" to report your results.`
+You are working inside a cbox flow. Read ` + "`/workspace/.cbox-task`" + ` for your task details.
+
+### Your responsibilities
+- Read the codebase, implement changes, write tests, and commit your work
+- When done, call the ` + "`cbox_report`" + ` MCP tool with type "done" to report results
+- When the user agrees the work is ready, use the ` + "`cbox_flow_pr`" + ` MCP tool to create a PR
+
+### What you must NOT do
+The cbox flow system manages all issue tracking on your behalf.
+Do NOT use gh or any tool to:
+- Create, update, close, or comment on issues
+- Create PRs directly (use the ` + "`cbox_flow_pr`" + ` tool instead)
+- Push branches (` + "`cbox_flow_pr`" + ` handles pushing)`
 
 	if err := docker.AppendClaudeMD(sandboxState.ClaudeContainer, taskInstruction); err != nil {
 		fmt.Printf("Warning: could not append task instruction to CLAUDE.md: %v\n", err)
@@ -213,7 +225,13 @@ func FlowChat(projectDir, branch string) error {
 		chrome = true
 	}
 
-	return sandbox.Chat(projectDir, branch, chrome)
+	initialPrompt := `Do these two things before anything else:
+
+1. Read /workspace/.cbox-task and summarize the task.
+2. Check your environment: what runtimes, tools, and commands are available? Try running the project's build and test commands via your MCP tools. If anything is missing or broken, warn me clearly about what's not working and what needs to be fixed before we can start.
+
+After reporting both, wait for my instructions.`
+	return sandbox.Chat(projectDir, branch, chrome, initialPrompt)
 }
 
 // writeTaskFile writes a .cbox-task file to the worktree.

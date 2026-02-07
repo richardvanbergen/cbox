@@ -263,11 +263,8 @@ func Clean(projectDir, branch string) error {
 		fmt.Printf("Warning: could not remove worktree: %v\n", err)
 	}
 
-	// Delete branch
-	fmt.Printf("Deleting branch %s...\n", state.Branch)
-	if err := worktree.DeleteBranch(state.ProjectDir, state.Branch); err != nil {
-		fmt.Printf("Warning: could not delete branch: %v\n", err)
-	}
+	// Delete branch (may already be gone after worktree remove)
+	worktree.DeleteBranch(state.ProjectDir, state.Branch)
 
 	// Remove state
 	RemoveState(projectDir, branch)

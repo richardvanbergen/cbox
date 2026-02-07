@@ -416,20 +416,18 @@ func flowInitCmd() *cobra.Command {
 }
 
 func flowStartCmd() *cobra.Command {
-	var description string
-	var autoMode bool
+	var yolo bool
 
 	cmd := &cobra.Command{
-		Use:   "start <title>",
-		Short: "Begin a new workflow: create issue, sandbox, and run research",
+		Use:   "start <description>",
+		Short: "Begin a new workflow: create issue and sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowStart(projectDir(), args[0], description, autoMode)
+			return workflow.FlowStart(projectDir(), args[0], yolo)
 		},
 	}
 
-	cmd.Flags().StringVar(&description, "description", "", "Detailed description of the task")
-	cmd.Flags().BoolVar(&autoMode, "auto", false, "Run all phases automatically (stops at PR)")
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
 	return cmd
 }
 

@@ -39,8 +39,8 @@ func FlowInit(projectDir string) error {
 	return nil
 }
 
-// FlowStart begins a new workflow: creates issue, sandbox, runs research.
-func FlowStart(projectDir, title, description string, autoMode bool) error {
+// FlowStart begins a new workflow: creates issue, sandbox, and optionally runs all phases.
+func FlowStart(projectDir, description string, yolo bool) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -51,8 +51,8 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 		return fmt.Errorf("no workflow config — run 'cbox flow init' first")
 	}
 
-	// Generate branch name
-	slug := slugify(title)
+	// Generate branch name from description
+	slug := slugify(description)
 	branchTmpl := "{{.Slug}}"
 	if wf.Branch != "" {
 		branchTmpl = wf.Branch
@@ -66,13 +66,9 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 	var issueID string
 	if wf.Issue != nil && wf.Issue.Create != "" {
 		fmt.Println("Creating issue...")
-		desc := description
-		if desc == "" {
-			desc = title
-		}
 		issueID, err = runShellCommand(wf.Issue.Create, map[string]string{
-			"Title":       title,
-			"Description": desc,
+			"Title":       description,
+			"Description": description,
 		})
 		if err != nil {
 			return fmt.Errorf("creating issue: %w", err)
@@ -81,13 +77,17 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 	}
 
 	// Create flow state
+	phase := "sandbox_ready"
+	if yolo {
+		phase = "research"
+	}
 	state := &FlowState{
 		Branch:      branch,
-		Title:       title,
+		Title:       description,
 		Description: description,
-		Phase:       "research",
+		Phase:       phase,
 		IssueID:     issueID,
-		AutoMode:    autoMode,
+		AutoMode:    yolo,
 		CreatedAt:   time.Now(),
 	}
 	if err := SaveFlowState(projectDir, state); err != nil {
@@ -111,21 +111,77 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 		})
 	}
 
-	// Run research prompt
+	if !yolo {
+		fmt.Printf("\nSandbox ready. Use 'cbox chat %s' to work interactively.\n", branch)
+		fmt.Printf("Or run 'cbox flow continue %s' to start the research phase.\n", branch)
+		return nil
+	}
+
+	// Yolo mode: run research → execute → PR
+	if err := flowResearch(projectDir, cfg, state, repDir); err != nil {
+		return err
+	}
+
+	fmt.Println("Continuing to execution...")
+	if err := flowExecute(projectDir, cfg, state, repDir); err != nil {
+		return err
+	}
+
+	fmt.Println("Creating PR...")
+	return FlowPR(projectDir, branch)
+}
+
+// FlowContinue resumes the flow from its current phase.
+func FlowContinue(projectDir, branch string) error {
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+
+	state, err := LoadFlowState(projectDir, branch)
+	if err != nil {
+		return err
+	}
+
+	repDir := reportDir(projectDir, branch)
+
+	switch state.Phase {
+	case "sandbox_ready":
+		if err := flowResearch(projectDir, cfg, state, repDir); err != nil {
+			return err
+		}
+		fmt.Printf("Review the plan, then run: cbox flow continue %s\n", branch)
+		return nil
+	case "plan_review":
+		return flowExecute(projectDir, cfg, state, repDir)
+	default:
+		return fmt.Errorf("flow is in %q phase — cannot continue from here", state.Phase)
+	}
+}
+
+// flowResearch runs the research phase and transitions to plan_review.
+func flowResearch(projectDir string, cfg *config.Config, state *FlowState, repDir string) error {
+	wf := cfg.Workflow
+
+	state.Phase = "research"
+	if err := SaveFlowState(projectDir, state); err != nil {
+		return fmt.Errorf("saving flow state: %w", err)
+	}
+
 	fmt.Println("Running research phase...")
 	var customResearch string
-	if wf.Prompts != nil {
+	if wf != nil && wf.Prompts != nil {
 		customResearch = wf.Prompts.Research
 	}
 	prompt, err := renderPrompt(defaultResearchPrompt, customResearch, map[string]string{
-		"Title":       title,
-		"Description": description,
+		"Title":       state.Title,
+		"Description": state.Description,
 	})
 	if err != nil {
 		return fmt.Errorf("rendering research prompt: %w", err)
 	}
 
-	if err := sandbox.ChatPrompt(projectDir, branch, prompt); err != nil {
+	if err := sandbox.ChatPrompt(projectDir, state.Branch, prompt); err != nil {
 		return fmt.Errorf("research phase failed: %w", err)
 	}
 
@@ -142,7 +198,6 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 		}
 	}
 
-	// Update state to plan_review
 	state.Phase = "plan_review"
 	if err := SaveFlowState(projectDir, state); err != nil {
 		return fmt.Errorf("saving flow state: %w", err)
@@ -154,37 +209,7 @@ func FlowStart(projectDir, title, description string, autoMode bool) error {
 		fmt.Println("\nResearch complete. No plan report received — check the sandbox for details.")
 	}
 
-	if autoMode {
-		fmt.Println("Auto mode: continuing to execution...")
-		if err := flowExecute(projectDir, cfg, state, repDir); err != nil {
-			return err
-		}
-		fmt.Println("Auto mode: creating PR...")
-		return FlowPR(projectDir, branch)
-	}
-
-	fmt.Printf("Review the plan, then run: cbox flow continue %s\n", branch)
 	return nil
-}
-
-// FlowContinue resumes after plan review: runs execution phase.
-func FlowContinue(projectDir, branch string) error {
-	cfg, err := config.Load(projectDir)
-	if err != nil {
-		return err
-	}
-
-	state, err := LoadFlowState(projectDir, branch)
-	if err != nil {
-		return err
-	}
-
-	if state.Phase != "plan_review" {
-		return fmt.Errorf("flow is in %q phase, expected plan_review", state.Phase)
-	}
-
-	repDir := reportDir(projectDir, branch)
-	return flowExecute(projectDir, cfg, state, repDir)
 }
 
 // flowExecute runs the execution phase of the workflow.

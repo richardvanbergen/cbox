@@ -17,6 +17,30 @@ type Config struct {
 	Browser      bool              `yaml:"browser,omitempty"`
 	HostCommands []string          `yaml:"host_commands,omitempty"`
 	Dockerfile   string            `yaml:"dockerfile,omitempty"`
+	Workflow     *WorkflowConfig   `yaml:"workflow,omitempty"`
+}
+
+type WorkflowConfig struct {
+	Branch  string              `yaml:"branch,omitempty"`
+	Issue   *WorkflowIssueConfig  `yaml:"issue,omitempty"`
+	PR      *WorkflowPRConfig     `yaml:"pr,omitempty"`
+	Prompts *WorkflowPromptConfig `yaml:"prompts,omitempty"`
+}
+
+type WorkflowIssueConfig struct {
+	Create    string `yaml:"create,omitempty"`
+	SetStatus string `yaml:"set_status,omitempty"`
+	Comment   string `yaml:"comment,omitempty"`
+}
+
+type WorkflowPRConfig struct {
+	Create string `yaml:"create,omitempty"`
+	Merge  string `yaml:"merge,omitempty"`
+}
+
+type WorkflowPromptConfig struct {
+	Research string `yaml:"research,omitempty"`
+	Execute  string `yaml:"execute,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -28,6 +52,21 @@ func DefaultConfig() *Config {
 		},
 		Env:          []string{"ANTHROPIC_API_KEY"},
 		HostCommands: []string{"git", "gh"},
+	}
+}
+
+func DefaultWorkflowConfig() *WorkflowConfig {
+	return &WorkflowConfig{
+		Branch: "{{.Slug}}",
+		Issue: &WorkflowIssueConfig{
+			Create:    `gh issue create --title "{{.Title}}" --body "{{.Description}}" --json number -q .number`,
+			SetStatus: `gh issue edit {{.IssueID}} --add-label "{{.Status}}"`,
+			Comment:   `gh issue comment {{.IssueID}} --body "{{.Body}}"`,
+		},
+		PR: &WorkflowPRConfig{
+			Create: `gh pr create --title "{{.Title}}" --body "{{.Description}}" --json url -q .url`,
+			Merge:  `gh pr merge {{.PRURL}} --merge`,
+		},
 	}
 }
 

@@ -185,7 +185,7 @@ Do NOT use gh or any tool to:
 }
 
 // FlowChat refreshes the task file from the issue and opens an interactive chat.
-func FlowChat(projectDir, branch string) error {
+func FlowChat(projectDir, branch, openCmd string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -216,6 +216,17 @@ func FlowChat(projectDir, branch string) error {
 			if err := writeTaskFile(sandboxState.WorktreePath, state.IssueID, issueContent); err != nil {
 				fmt.Printf("Warning: could not update task file: %v\n", err)
 			}
+		}
+	}
+
+	// Run open command (flag overrides config)
+	open := openCmd
+	if open == "" {
+		open = cfg.Open
+	}
+	if open != "" {
+		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
+			fmt.Printf("Warning: open command failed: %v\n", err)
 		}
 	}
 
@@ -268,6 +279,14 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("no PR create command configured")
 	}
 
+	// Load sandbox state to get worktree path — git/gh commands must
+	// run there so they see the correct branch.
+	sandboxState, err := sandbox.LoadState(projectDir, branch)
+	if err != nil {
+		return fmt.Errorf("loading sandbox state: %w", err)
+	}
+	wtPath := sandboxState.WorktreePath
+
 	// Build PR description from reports
 	repDir := reportDir(projectDir, branch)
 	reports, _ := hostcmd.LoadReports(repDir)
@@ -287,17 +306,17 @@ func FlowPR(projectDir, branch string) error {
 
 	// Push the branch first
 	fmt.Println("Pushing branch...")
-	if _, err := runShellCommand("git push -u origin {{.Branch}}", map[string]string{
+	if _, err := runShellCommandInDir("git push -u origin {{.Branch}}", map[string]string{
 		"Branch": branch,
-	}); err != nil {
+	}, wtPath); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
 	fmt.Println("Creating PR...")
-	prURL, err := runShellCommand(wf.PR.Create, map[string]string{
+	prURL, err := runShellCommandInDir(wf.PR.Create, map[string]string{
 		"Title":       state.Title,
 		"Description": description,
-	})
+	}, wtPath)
 	if err != nil {
 		return fmt.Errorf("creating PR: %w", err)
 	}

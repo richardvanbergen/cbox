@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"text/template"
 
 	"path/filepath"
 
@@ -155,8 +157,47 @@ func downCmd() *cobra.Command {
 	}
 }
 
+// runOpenCommand resolves and runs the open command (flag overrides config).
+// Errors are warned about but don't block execution.
+func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
+	openCmd := flagValue
+	if openCmd == "" && cfg != nil {
+		openCmd = cfg.Open
+	}
+	if openCmd == "" {
+		return
+	}
+
+	state, err := sandbox.LoadState(projectDir, branch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not load sandbox state for open command: %v\n", err)
+		return
+	}
+
+	t, err := template.New("").Parse(openCmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not parse open command template: %v\n", err)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, map[string]string{"Dir": state.WorktreePath}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not render open command template: %v\n", err)
+		return
+	}
+
+	rendered := buf.String()
+	c := exec.Command("sh", "-c", rendered)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: open command failed: %v\n", err)
+	}
+}
+
 func chatCmd() *cobra.Command {
 	var prompt string
+	var openCmd string
 
 	cmd := &cobra.Command{
 		Use:               "chat <branch>",
@@ -168,9 +209,12 @@ func chatCmd() *cobra.Command {
 			branch := args[0]
 
 			var chrome bool
-			if cfg, err := config.Load(dir); err == nil {
+			cfg, _ := config.Load(dir)
+			if cfg != nil {
 				chrome = cfg.Browser
 			}
+
+			runOpenCommand(cfg, openCmd, dir, branch)
 
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
@@ -180,6 +224,7 @@ func chatCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use {{.Dir}} for worktree path)")
 	return cmd
 }
 
@@ -447,15 +492,20 @@ func flowStatusCmd() *cobra.Command {
 }
 
 func flowChatCmd() *cobra.Command {
-	return &cobra.Command{
+	var openCmd string
+
+	cmd := &cobra.Command{
 		Use:               "chat <branch>",
 		Short:             "Refresh task context and open interactive chat",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowChat(projectDir(), args[0])
+			return workflow.FlowChat(projectDir(), args[0], openCmd)
 		},
 	}
+
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use {{.Dir}} for worktree path)")
+	return cmd
 }
 
 func flowPRCmd() *cobra.Command {

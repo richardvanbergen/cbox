@@ -3,6 +3,7 @@ package workflow
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -67,14 +68,33 @@ func renderTemplate(tmpl string, data any) (string, error) {
 }
 
 // runShellCommand renders a template and executes it as a shell command.
+// Template data is also passed as environment variables so commands can
+// reference values with $VarName — safer than Go template substitution
+// for values containing shell metacharacters (backticks, quotes, etc.).
 // Returns the trimmed stdout output.
 func runShellCommand(tmpl string, data any) (string, error) {
+	return runShellCommandInDir(tmpl, data, "")
+}
+
+// runShellCommandInDir is like runShellCommand but executes in the given directory.
+func runShellCommandInDir(tmpl string, data any, dir string) (string, error) {
 	rendered, err := renderTemplate(tmpl, data)
 	if err != nil {
 		return "", err
 	}
 
 	cmd := exec.Command("sh", "-c", rendered)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+
+	if m, ok := data.(map[string]string); ok {
+		cmd.Env = os.Environ()
+		for k, v := range m {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+
 	out, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(out))
 

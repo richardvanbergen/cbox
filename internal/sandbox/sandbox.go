@@ -186,14 +186,15 @@ func Down(projectDir, branch string) error {
 }
 
 // Chat launches Claude Code interactively in the Claude container.
-// If initialPrompt is provided, it is sent as the first message in the conversation.
-func Chat(projectDir, branch string, chrome bool, initialPrompt string) error {
+// If resume is true, passes --continue to resume the last conversation.
+// Otherwise, if initialPrompt is provided, it is sent as the first message.
+func Chat(projectDir, branch string, chrome bool, initialPrompt string, resume bool) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
 
-	return docker.Chat(state.ClaudeContainer, chrome, initialPrompt)
+	return docker.Chat(state.ClaudeContainer, chrome, initialPrompt, resume)
 }
 
 // ChatPrompt runs a one-shot Claude prompt in the Claude container.

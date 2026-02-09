@@ -205,7 +205,7 @@ func chatCmd() *cobra.Command {
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
 			}
-			return sandbox.Chat(dir, branch, chrome, "")
+			return sandbox.Chat(dir, branch, chrome, "", false)
 		},
 	}
 
@@ -449,6 +449,7 @@ func flowInitCmd() *cobra.Command {
 func flowStartCmd() *cobra.Command {
 	var description string
 	var yolo bool
+	var openCmd string
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -467,12 +468,15 @@ func flowStartCmd() *cobra.Command {
 					return err
 				}
 			}
-			return workflow.FlowStart(projectDir(), description, yolo)
+			openFlag := cmd.Flags().Changed("open")
+			return workflow.FlowStart(projectDir(), description, yolo, openFlag, openCmd)
 		},
 	}
 
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Flow description (opens editor if omitted)")
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
 
@@ -500,11 +504,13 @@ func flowChatCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowChat(projectDir(), args[0], openCmd)
+			openFlag := cmd.Flags().Changed("open")
+			return workflow.FlowChat(projectDir(), args[0], openFlag, openCmd)
 		},
 	}
 
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
 

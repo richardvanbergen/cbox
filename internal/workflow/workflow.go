@@ -13,6 +13,21 @@ import (
 	"github.com/richvanbergen/cbox/internal/sandbox"
 )
 
+// resolveOpenCommand determines the open command to run based on the flag state.
+// If openFlag is false, no open command should run (returns "").
+// If openFlag is true and openCmd is non-empty, it returns openCmd.
+// If openFlag is true and openCmd is empty (or whitespace-only), it falls back to configOpen.
+func resolveOpenCommand(openFlag bool, openCmd, configOpen string) string {
+	if !openFlag {
+		return ""
+	}
+	cmd := strings.TrimSpace(openCmd)
+	if cmd == "" {
+		cmd = configOpen
+	}
+	return cmd
+}
+
 // reportDir returns the report directory path for a branch.
 func reportDir(projectDir, branch string) string {
 	safeBranch := strings.ReplaceAll(branch, "/", "-")
@@ -41,7 +56,9 @@ func FlowInit(projectDir string) error {
 }
 
 // FlowStart begins a new workflow: creates issue, sandbox, writes task file, and sets up context.
-func FlowStart(projectDir, description string, yolo bool) error {
+// If openFlag is true, the open command runs after the sandbox is ready. openCmd overrides the
+// config default; when openCmd is empty the value from cfg.Open is used.
+func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -176,6 +193,13 @@ Do NOT use gh or any tool to:
 		})
 	}
 
+	// Run open command if --open flag was explicitly provided
+	if open := resolveOpenCommand(openFlag, openCmd, cfg.Open); open != "" {
+		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
+			fmt.Printf("Warning: open command failed: %v\n", err)
+		}
+	}
+
 	if !yolo {
 		fmt.Printf("\nSandbox ready. Run 'cbox flow chat %s' to begin.\n", branch)
 		return nil
@@ -205,7 +229,9 @@ Do NOT use gh or any tool to:
 }
 
 // FlowChat refreshes the task file from the issue and opens an interactive chat.
-func FlowChat(projectDir, branch, openCmd string) error {
+// If openFlag is true, the open command runs before chat. openCmd overrides the
+// config default; when openCmd is empty the value from cfg.Open is used.
+func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -265,12 +291,8 @@ func FlowChat(projectDir, branch, openCmd string) error {
 		fmt.Printf("Warning: could not update task file: %v\n", err)
 	}
 
-	// Run open command (flag overrides config)
-	open := openCmd
-	if open == "" {
-		open = cfg.Open
-	}
-	if open != "" {
+	// Run open command only if --open flag was explicitly provided
+	if open := resolveOpenCommand(openFlag, openCmd, cfg.Open); open != "" {
 		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
 			fmt.Printf("Warning: open command failed: %v\n", err)
 		}
@@ -282,13 +304,26 @@ func FlowChat(projectDir, branch, openCmd string) error {
 		chrome = true
 	}
 
-	initialPrompt := `Do these two things before anything else:
+	resume := state.Chatted
+
+	if !state.Chatted {
+		state.Chatted = true
+		if err := SaveFlowState(projectDir, state); err != nil {
+			return fmt.Errorf("saving flow state: %w", err)
+		}
+	}
+
+	var initialPrompt string
+	if !resume {
+		initialPrompt = `Do these two things before anything else:
 
 1. Read /workspace/.cbox-task and summarize the task.
 2. Check your environment: what runtimes, tools, and commands are available? Try running the project's build and test commands via your MCP tools. If anything is missing or broken, warn me clearly about what's not working and what needs to be fixed before we can start.
 
 After reporting both, wait for my instructions.`
-	return sandbox.Chat(projectDir, branch, chrome, initialPrompt)
+	}
+
+	return sandbox.Chat(projectDir, branch, chrome, initialPrompt, resume)
 }
 
 // FlowPR creates a pull request for the flow.

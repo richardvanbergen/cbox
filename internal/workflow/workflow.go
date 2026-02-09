@@ -61,11 +61,12 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	branch := expandVars(branchTmpl, map[string]string{"Slug": slug})
 
 	// Create issue if configured
+	title := summarize(description)
 	var issueID string
 	if wf.Issue != nil && wf.Issue.Create != "" {
 		fmt.Println("Creating issue...")
 		issueID, err = runShellCommand(wf.Issue.Create, map[string]string{
-			"Title":       description,
+			"Title":       title,
 			"Description": description,
 		})
 		if err != nil {
@@ -77,7 +78,7 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	// Create flow state
 	state := &FlowState{
 		Branch:      branch,
-		Title:       description,
+		Title:       title,
 		Description: description,
 		Phase:       "started",
 		IssueID:     issueID,

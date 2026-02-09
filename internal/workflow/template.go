@@ -51,6 +51,44 @@ func fallbackSlugify(title string) string {
 	return strings.Join(parts, "-")
 }
 
+// summarize generates a short title (under 70 chars) from a longer description
+// using an LLM, falling back to simple truncation.
+func summarize(description string) string {
+	if title := llmSummarize(description); title != "" {
+		return title
+	}
+	return fallbackSummarize(description)
+}
+
+func llmSummarize(description string) string {
+	prompt := fmt.Sprintf(
+		`Summarize this task as a short issue title (under 70 characters, no quotes): %q. Reply with ONLY the title, nothing else.`,
+		description,
+	)
+	cmd := exec.Command("claude", "-p", prompt, "--model", "claude-haiku-4-5-20251001")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	title := strings.TrimSpace(string(out))
+	if title == "" || len(title) > 70 {
+		return ""
+	}
+	return title
+}
+
+func fallbackSummarize(description string) string {
+	if len(description) <= 70 {
+		return description
+	}
+	// Truncate at last space before 70 chars
+	s := description[:70]
+	if i := strings.LastIndex(s, " "); i > 20 {
+		s = s[:i]
+	}
+	return s
+}
+
 // expandVars expands $VarName references in a string using the provided data map.
 // Unknown variables are left unexpanded.
 func expandVars(s string, data map[string]string) string {

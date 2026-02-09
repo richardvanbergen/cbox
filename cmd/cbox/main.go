@@ -205,7 +205,7 @@ func chatCmd() *cobra.Command {
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
 			}
-			return sandbox.Chat(dir, branch, chrome, "")
+			return sandbox.Chat(dir, branch, chrome, "", false)
 		},
 	}
 

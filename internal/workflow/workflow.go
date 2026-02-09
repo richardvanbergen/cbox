@@ -282,13 +282,26 @@ func FlowChat(projectDir, branch, openCmd string) error {
 		chrome = true
 	}
 
-	initialPrompt := `Do these two things before anything else:
+	resume := state.Chatted
+
+	if !state.Chatted {
+		state.Chatted = true
+		if err := SaveFlowState(projectDir, state); err != nil {
+			return fmt.Errorf("saving flow state: %w", err)
+		}
+	}
+
+	var initialPrompt string
+	if !resume {
+		initialPrompt = `Do these two things before anything else:
 
 1. Read /workspace/.cbox-task and summarize the task.
 2. Check your environment: what runtimes, tools, and commands are available? Try running the project's build and test commands via your MCP tools. If anything is missing or broken, warn me clearly about what's not working and what needs to be fixed before we can start.
 
 After reporting both, wait for my instructions.`
-	return sandbox.Chat(projectDir, branch, chrome, initialPrompt)
+	}
+
+	return sandbox.Chat(projectDir, branch, chrome, initialPrompt, resume)
 }
 
 // FlowPR creates a pull request for the flow.

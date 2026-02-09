@@ -107,8 +107,9 @@ func Shell(name string) error {
 }
 
 // Chat execs into the Claude container and launches Claude Code interactively.
-// If initialPrompt is provided, it is sent as the first message in the conversation.
-func Chat(name string, chrome bool, initialPrompt string) error {
+// If resume is true, passes --continue to resume the last conversation.
+// Otherwise, if initialPrompt is provided, it is sent as the first message.
+func Chat(name string, chrome bool, initialPrompt string, resume bool) error {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
 		return fmt.Errorf("docker not found: %w", err)
@@ -118,7 +119,9 @@ func Chat(name string, chrome bool, initialPrompt string) error {
 	if chrome {
 		args = append(args, "--chrome")
 	}
-	if initialPrompt != "" {
+	if resume {
+		args = append(args, "--continue")
+	} else if initialPrompt != "" {
 		args = append(args, initialPrompt)
 	}
 	return syscall.Exec(dockerPath, args, os.Environ())

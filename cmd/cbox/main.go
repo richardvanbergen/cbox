@@ -448,17 +448,21 @@ func flowInitCmd() *cobra.Command {
 
 func flowStartCmd() *cobra.Command {
 	var yolo bool
+	var openCmd string
 
 	cmd := &cobra.Command{
 		Use:   "start <description>",
 		Short: "Begin a new workflow: create issue and sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowStart(projectDir(), args[0], yolo)
+			openFlag := cmd.Flags().Changed("open")
+			return workflow.FlowStart(projectDir(), args[0], yolo, openFlag, openCmd)
 		},
 	}
 
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
 
@@ -486,11 +490,13 @@ func flowChatCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowChat(projectDir(), args[0], openCmd)
+			openFlag := cmd.Flags().Changed("open")
+			return workflow.FlowChat(projectDir(), args[0], openFlag, openCmd)
 		},
 	}
 
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
 

@@ -279,6 +279,14 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("no PR create command configured")
 	}
 
+	// Load sandbox state to get worktree path — git/gh commands must
+	// run there so they see the correct branch.
+	sandboxState, err := sandbox.LoadState(projectDir, branch)
+	if err != nil {
+		return fmt.Errorf("loading sandbox state: %w", err)
+	}
+	wtPath := sandboxState.WorktreePath
+
 	// Build PR description from reports
 	repDir := reportDir(projectDir, branch)
 	reports, _ := hostcmd.LoadReports(repDir)
@@ -298,17 +306,17 @@ func FlowPR(projectDir, branch string) error {
 
 	// Push the branch first
 	fmt.Println("Pushing branch...")
-	if _, err := runShellCommand("git push -u origin {{.Branch}}", map[string]string{
+	if _, err := runShellCommandInDir("git push -u origin {{.Branch}}", map[string]string{
 		"Branch": branch,
-	}); err != nil {
+	}, wtPath); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
 	fmt.Println("Creating PR...")
-	prURL, err := runShellCommand(wf.PR.Create, map[string]string{
+	prURL, err := runShellCommandInDir(wf.PR.Create, map[string]string{
 		"Title":       state.Title,
 		"Description": description,
-	})
+	}, wtPath)
 	if err != nil {
 		return fmt.Errorf("creating PR: %w", err)
 	}

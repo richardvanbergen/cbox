@@ -73,12 +73,20 @@ func renderTemplate(tmpl string, data any) (string, error) {
 // for values containing shell metacharacters (backticks, quotes, etc.).
 // Returns the trimmed stdout output.
 func runShellCommand(tmpl string, data any) (string, error) {
+	return runShellCommandInDir(tmpl, data, "")
+}
+
+// runShellCommandInDir is like runShellCommand but executes in the given directory.
+func runShellCommandInDir(tmpl string, data any, dir string) (string, error) {
 	rendered, err := renderTemplate(tmpl, data)
 	if err != nil {
 		return "", err
 	}
 
 	cmd := exec.Command("sh", "-c", rendered)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 
 	if m, ok := data.(map[string]string); ok {
 		cmd.Env = os.Environ()

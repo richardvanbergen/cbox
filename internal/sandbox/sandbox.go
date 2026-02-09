@@ -45,6 +45,14 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	}
 	fmt.Printf("Worktree ready at %s\n", wtPath)
 
+	// Copy configured files into the new worktree
+	if len(cfg.CopyFiles) > 0 {
+		fmt.Println("Copying files to worktree...")
+		if err := worktree.CopyFiles(projectDir, wtPath, cfg.CopyFiles); err != nil {
+			return fmt.Errorf("copying files to worktree: %w", err)
+		}
+	}
+
 	// 2. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
 	fmt.Printf("Building Claude image %s...\n", claudeImage)

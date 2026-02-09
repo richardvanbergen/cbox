@@ -62,14 +62,14 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 		Branch: "{{.Slug}}",
 		Issue: &WorkflowIssueConfig{
 			Create:    `gh issue create --title "$Title" --body "$Description" | grep -o '[0-9]*$'`,
-			View:      `gh issue view "$IssueID" --json title,body,labels,state --template '{{.title}}\n\n{{.body}}'`,
+			View:      `gh issue view "$IssueID" --json number,title,body,labels,state,url`,
 			Close:     `gh issue close "$IssueID"`,
 			SetStatus: `gh issue edit "$IssueID" --add-label "$Status"`,
 			Comment:   `gh issue comment "$IssueID" --body "$Body"`,
 		},
 		PR: &WorkflowPRConfig{
 			Create: `gh pr create --title "$Title" --body "$Description"`,
-			Merge:  `gh pr merge "$PRURL" --merge`,
+			Merge:  `gh pr merge "$PRNumber" --merge`,
 		},
 	}
 }

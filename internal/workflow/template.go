@@ -95,11 +95,16 @@ func runShellCommandInDir(tmpl string, data any, dir string) (string, error) {
 		}
 	}
 
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	output := strings.TrimSpace(stdout.String())
 
 	if err != nil {
-		return output, fmt.Errorf("command %q failed: %s: %w", rendered, output, err)
+		// Include both stdout and stderr in the error message for debugging
+		combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
+		return output, fmt.Errorf("command %q failed: %s: %w", rendered, combined, err)
 	}
 
 	return output, nil

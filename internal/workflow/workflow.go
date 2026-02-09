@@ -108,18 +108,43 @@ func FlowStart(projectDir, description string, yolo bool) error {
 	}
 
 	// Fetch issue content and write task file
-	var issueContent string
+	tf := &TaskFile{
+		Task: TaskInfo{
+			Title:       description,
+			Description: description,
+		},
+	}
+
 	if issueID != "" && wf.Issue != nil && wf.Issue.View != "" {
 		fmt.Println("Fetching issue content...")
-		issueContent, err = runShellCommand(wf.Issue.View, map[string]string{
+		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": issueID,
 		})
 		if err != nil {
 			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+		} else {
+			issueInfo, parseErr := parseIssueJSON(issueContent)
+			if parseErr != nil {
+				// Fall back for custom non-JSON view commands
+				tf.Issue = &IssueInfo{
+					ID:   issueID,
+					Body: issueContent,
+				}
+			} else {
+				issueInfo.ID = issueID
+				tf.Issue = issueInfo
+				if issueInfo.Title != "" {
+					tf.Task.Title = issueInfo.Title
+				}
+			}
 		}
 	}
 
-	if err := writeTaskFile(sandboxState.WorktreePath, issueID, issueContent); err != nil {
+	if tf.Issue == nil && issueID != "" {
+		tf.Issue = &IssueInfo{ID: issueID}
+	}
+
+	if err := writeStructuredTaskFile(sandboxState.WorktreePath, tf); err != nil {
 		return fmt.Errorf("writing task file: %w", err)
 	}
 
@@ -160,8 +185,8 @@ Do NOT use gh or any tool to:
 
 	// Yolo mode: run headless prompt then create PR
 	taskContent := description
-	if issueContent != "" {
-		taskContent = issueContent
+	if tf.Issue != nil && tf.Issue.Body != "" {
+		taskContent = tf.Issue.Body
 	}
 
 	var customYolo string
@@ -205,6 +230,13 @@ func FlowChat(projectDir, branch, openCmd string) error {
 	}
 
 	// Refresh task file from issue
+	tf := &TaskFile{
+		Task: TaskInfo{
+			Title:       state.Title,
+			Description: state.Description,
+		},
+	}
+
 	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.View != "" {
 		fmt.Println("Refreshing task from issue...")
 		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
@@ -212,11 +244,30 @@ func FlowChat(projectDir, branch, openCmd string) error {
 		})
 		if err != nil {
 			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+			tf.Issue = &IssueInfo{ID: state.IssueID}
 		} else {
-			if err := writeTaskFile(sandboxState.WorktreePath, state.IssueID, issueContent); err != nil {
-				fmt.Printf("Warning: could not update task file: %v\n", err)
+			issueInfo, parseErr := parseIssueJSON(issueContent)
+			if parseErr != nil {
+				tf.Issue = &IssueInfo{
+					ID:   state.IssueID,
+					Body: issueContent,
+				}
+			} else {
+				issueInfo.ID = state.IssueID
+				tf.Issue = issueInfo
 			}
 		}
+	}
+
+	if state.PRURL != "" || state.PRNumber != "" {
+		tf.PR = &PRInfo{
+			Number: state.PRNumber,
+			URL:    state.PRURL,
+		}
+	}
+
+	if err := writeStructuredTaskFile(sandboxState.WorktreePath, tf); err != nil {
+		fmt.Printf("Warning: could not update task file: %v\n", err)
 	}
 
 	// Run open command (flag overrides config)
@@ -243,19 +294,6 @@ func FlowChat(projectDir, branch, openCmd string) error {
 
 After reporting both, wait for my instructions.`
 	return sandbox.Chat(projectDir, branch, chrome, initialPrompt)
-}
-
-// writeTaskFile writes a .cbox-task file to the worktree.
-func writeTaskFile(worktreePath, issueID, issueContent string) error {
-	var content string
-	if issueID != "" {
-		content = fmt.Sprintf("Issue: #%s\n\n%s\n", issueID, issueContent)
-	} else {
-		content = issueContent + "\n"
-	}
-
-	path := filepath.Join(worktreePath, ".cbox-task")
-	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // FlowPR creates a pull request for the flow.
@@ -313,7 +351,7 @@ func FlowPR(projectDir, branch string) error {
 	}
 
 	fmt.Println("Creating PR...")
-	prURL, err := runShellCommandInDir(wf.PR.Create, map[string]string{
+	prOutput, err := runShellCommandInDir(wf.PR.Create, map[string]string{
 		"Title":       state.Title,
 		"Description": description,
 	}, wtPath)
@@ -321,9 +359,28 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("creating PR: %w", err)
 	}
 
+	prURL, prNumber, parseErr := parsePROutput(prOutput)
+	if parseErr != nil {
+		fmt.Printf("Warning: could not parse PR number: %v\n", parseErr)
+		prURL = prOutput
+	}
+
 	state.PRURL = prURL
+	state.PRNumber = prNumber
 	if err := SaveFlowState(projectDir, state); err != nil {
 		return fmt.Errorf("saving flow state: %w", err)
+	}
+
+	// Update task file with PR info
+	existing, _ := loadTaskFile(wtPath)
+	if existing != nil {
+		existing.PR = &PRInfo{
+			Number: prNumber,
+			URL:    prURL,
+		}
+		if err := writeStructuredTaskFile(wtPath, existing); err != nil {
+			fmt.Printf("Warning: could not update task file with PR info: %v\n", err)
+		}
 	}
 
 	// Update issue status and comment with PR link
@@ -363,9 +420,17 @@ func FlowMerge(projectDir, branch string) error {
 
 	// Merge PR
 	if state.PRURL != "" && wf != nil && wf.PR != nil && wf.PR.Merge != "" {
+		prNumber := state.PRNumber
+		if prNumber == "" {
+			// Fallback: extract from URL for old state files
+			_, extracted, _ := parsePROutput(state.PRURL)
+			prNumber = extracted
+		}
+
 		fmt.Println("Merging PR...")
 		if _, err := runShellCommand(wf.PR.Merge, map[string]string{
-			"PRURL": state.PRURL,
+			"PRURL":    state.PRURL,
+			"PRNumber": prNumber,
 		}); err != nil {
 			return fmt.Errorf("merging PR: %w", err)
 		}

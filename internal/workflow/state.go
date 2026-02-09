@@ -18,6 +18,7 @@ type FlowState struct {
 	Phase       string    `json:"phase"`
 	IssueID     string    `json:"issue_id,omitempty"`
 	PRURL       string    `json:"pr_url,omitempty"`
+	PRNumber    string    `json:"pr_number,omitempty"`
 	AutoMode    bool      `json:"auto_mode"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

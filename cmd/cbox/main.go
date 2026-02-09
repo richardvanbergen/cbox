@@ -447,19 +447,33 @@ func flowInitCmd() *cobra.Command {
 }
 
 func flowStartCmd() *cobra.Command {
+	var description string
 	var yolo bool
 	var openCmd string
 
 	cmd := &cobra.Command{
-		Use:   "start <description>",
+		Use:   "start",
 		Short: "Begin a new workflow: create issue and sandbox",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if description == "" {
+				cfg, _ := config.Load(projectDir())
+				var editorCfg string
+				if cfg != nil {
+					editorCfg = cfg.Editor
+				}
+				var err error
+				description, err = workflow.EditDescription(editorCfg)
+				if err != nil {
+					return err
+				}
+			}
 			openFlag := cmd.Flags().Changed("open")
-			return workflow.FlowStart(projectDir(), args[0], yolo, openFlag, openCmd)
+			return workflow.FlowStart(projectDir(), description, yolo, openFlag, openCmd)
 		},
 	}
 
+	cmd.Flags().StringVarP(&description, "description", "d", "", "Flow description (opens editor if omitted)")
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
 	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
 	cmd.Flags().Lookup("open").NoOptDefVal = " "

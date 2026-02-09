@@ -315,14 +315,21 @@ func IsRunning(name string) (bool, error) {
 }
 
 // StopAndRemove stops and removes a container.
+// It returns nil if the container was successfully removed or did not exist.
 func StopAndRemove(name string) error {
 	stop := exec.Command("docker", "stop", name)
-	stop.Run()
+	stop.Run() // ignore error — container may already be stopped
 
 	rm := exec.Command("docker", "rm", name)
 	out, err := rm.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker rm: %s: %w", strings.TrimSpace(string(out)), err)
+		outStr := strings.TrimSpace(string(out))
+		// Not an error if the container doesn't exist
+		if strings.Contains(outStr, "No such container") ||
+			strings.Contains(outStr, "no such container") {
+			return nil
+		}
+		return fmt.Errorf("docker rm: %s: %w", outStr, err)
 	}
 	return nil
 }

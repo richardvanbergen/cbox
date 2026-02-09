@@ -227,31 +227,28 @@ For services (databases, redis, etc.), use docker run -d to keep them running.
 
 ### Permanent: configure cbox
 
-These changes go in .cbox.yml and persist across sessions. After any change,
+These changes go in .cbox.toml and persist across sessions. After any change,
 the user must rebuild: `+"`cbox up <branch> --rebuild`"+`
 
 **Add a host command** — expose a tool already installed on the host machine:
-`+"```yaml"+`
-host_commands:
-  - git
-  - gh
-  - bun        # add the tool you need
+`+"```toml"+`
+host_commands = ["git", "gh", "bun"]
 `+"```"+`
 
 **Add or update project commands** — define build/test/run as MCP tools:
-`+"```yaml"+`
-commands:
-  build: "go build ./..."
-  test: "go test ./..."
-  run: "go run ./cmd/myapp"
+`+"```toml"+`
+[commands]
+build = "go build ./..."
+test = "go test ./..."
+run = "go run ./cmd/myapp"
 `+"```"+`
 
 **Use a custom Dockerfile** — bake runtimes or system packages into the container:
-`+"```yaml"+`
-dockerfile: .cbox.Dockerfile
+`+"```toml"+`
+dockerfile = ".cbox.Dockerfile"
 `+"```"+`
 The user creates a Dockerfile that installs what's needed (e.g. node, python, etc.)
-and references it in .cbox.yml. This makes the tools available directly in the container.`)
+and references it in .cbox.toml. This makes the tools available directly in the container.`)
 
 	// Extra sections (e.g. task assignment from workflow)
 	for _, e := range extras {

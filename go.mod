@@ -3,6 +3,7 @@ module github.com/richvanbergen/cbox
 go 1.24.4
 
 require (
+	github.com/BurntSushi/toml v1.4.0
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1

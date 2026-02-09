@@ -1,48 +1,49 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/BurntSushi/toml"
 )
 
-const ConfigFile = ".cbox.yml"
+const ConfigFile = ".cbox.toml"
 
 type Config struct {
-	Commands     map[string]string `yaml:"commands,omitempty"`
-	Env          []string          `yaml:"env,omitempty"`
-	EnvFile      string            `yaml:"env_file,omitempty"`
-	Browser      bool              `yaml:"browser,omitempty"`
-	HostCommands []string          `yaml:"host_commands,omitempty"`
-	Dockerfile   string            `yaml:"dockerfile,omitempty"`
-	Open         string            `yaml:"open,omitempty"`
-	Workflow     *WorkflowConfig   `yaml:"workflow,omitempty"`
+	Commands     map[string]string `toml:"commands,omitempty"`
+	Env          []string          `toml:"env,omitempty"`
+	EnvFile      string            `toml:"env_file,omitempty"`
+	Browser      bool              `toml:"browser,omitempty"`
+	HostCommands []string          `toml:"host_commands,omitempty"`
+	Dockerfile   string            `toml:"dockerfile,omitempty"`
+	Open         string            `toml:"open,omitempty"`
+	Workflow     *WorkflowConfig   `toml:"workflow,omitempty"`
 }
 
 type WorkflowConfig struct {
-	Branch  string              `yaml:"branch,omitempty"`
-	Issue   *WorkflowIssueConfig  `yaml:"issue,omitempty"`
-	PR      *WorkflowPRConfig     `yaml:"pr,omitempty"`
-	Prompts *WorkflowPromptConfig `yaml:"prompts,omitempty"`
+	Branch  string                `toml:"branch,omitempty"`
+	Issue   *WorkflowIssueConfig  `toml:"issue,omitempty"`
+	PR      *WorkflowPRConfig     `toml:"pr,omitempty"`
+	Prompts *WorkflowPromptConfig `toml:"prompts,omitempty"`
 }
 
 type WorkflowIssueConfig struct {
-	Create    string `yaml:"create,omitempty"`
-	View      string `yaml:"view,omitempty"`
-	Close     string `yaml:"close,omitempty"`
-	SetStatus string `yaml:"set_status,omitempty"`
-	Comment   string `yaml:"comment,omitempty"`
+	Create    string `toml:"create,omitempty"`
+	View      string `toml:"view,omitempty"`
+	Close     string `toml:"close,omitempty"`
+	SetStatus string `toml:"set_status,omitempty"`
+	Comment   string `toml:"comment,omitempty"`
 }
 
 type WorkflowPRConfig struct {
-	Create string `yaml:"create,omitempty"`
-	Merge  string `yaml:"merge,omitempty"`
+	Create string `toml:"create,omitempty"`
+	Merge  string `toml:"merge,omitempty"`
 }
 
 type WorkflowPromptConfig struct {
-	Yolo string `yaml:"yolo,omitempty"`
+	Yolo string `toml:"yolo,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -59,7 +60,7 @@ func DefaultConfig() *Config {
 
 func DefaultWorkflowConfig() *WorkflowConfig {
 	return &WorkflowConfig{
-		Branch: "{{.Slug}}",
+		Branch: "$Slug",
 		Issue: &WorkflowIssueConfig{
 			Create:    `gh issue create --title "$Title" --body "$Description" | grep -o '[0-9]*$'`,
 			View:      `gh issue view "$IssueID" --json number,title,body,labels,state,url`,
@@ -76,25 +77,19 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 
 func Load(projectDir string) (*Config, error) {
 	path := filepath.Join(projectDir, ConfigFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
+	var cfg Config
+	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", ConfigFile, err)
 	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", ConfigFile, err)
-	}
-
 	return &cfg, nil
 }
 
 func (c *Config) Save(projectDir string) error {
-	data, err := yaml.Marshal(c)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
 	path := filepath.Join(projectDir, ConfigFile)
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, buf.Bytes(), 0644)
 }

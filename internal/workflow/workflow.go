@@ -19,7 +19,7 @@ func reportDir(projectDir, branch string) string {
 	return filepath.Join(projectDir, ".cbox", "reports", safeBranch)
 }
 
-// FlowInit writes default workflow config into .cbox.yml.
+// FlowInit writes default workflow config into .cbox.toml.
 func FlowInit(projectDir string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -54,14 +54,11 @@ func FlowStart(projectDir, description string, yolo bool) error {
 
 	// Generate branch name from description
 	slug := slugify(description)
-	branchTmpl := "{{.Slug}}"
+	branchTmpl := "$Slug"
 	if wf.Branch != "" {
 		branchTmpl = wf.Branch
 	}
-	branch, err := renderTemplate(branchTmpl, map[string]string{"Slug": slug})
-	if err != nil {
-		return fmt.Errorf("rendering branch template: %w", err)
-	}
+	branch := expandVars(branchTmpl, map[string]string{"Slug": slug})
 
 	// Create issue if configured
 	var issueID string
@@ -193,12 +190,9 @@ Do NOT use gh or any tool to:
 	if wf.Prompts != nil {
 		customYolo = wf.Prompts.Yolo
 	}
-	prompt, err := renderPrompt(defaultYoloPrompt, customYolo, map[string]string{
+	prompt := renderPrompt(defaultYoloPrompt, customYolo, map[string]string{
 		"TaskContent": taskContent,
 	})
-	if err != nil {
-		return fmt.Errorf("rendering yolo prompt: %w", err)
-	}
 
 	fmt.Println("Running in yolo mode...")
 	if err := sandbox.ChatPrompt(projectDir, branch, prompt); err != nil {
@@ -344,7 +338,7 @@ func FlowPR(projectDir, branch string) error {
 
 	// Push the branch first
 	fmt.Println("Pushing branch...")
-	if _, err := runShellCommandInDir("git push -u origin {{.Branch}}", map[string]string{
+	if _, err := runShellCommandInDir("git push -u origin $Branch", map[string]string{
 		"Branch": branch,
 	}, wtPath); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)

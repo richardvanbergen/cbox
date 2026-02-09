@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-	"text/template"
 
 	"path/filepath"
 
@@ -78,7 +76,7 @@ func branchCompletion() func(*cobra.Command, []string, string) ([]string, cobra.
 	}
 }
 
-// configCommandCompletion returns a completion function that suggests commands from .cbox.yml.
+// configCommandCompletion returns a completion function that suggests commands from .cbox.toml.
 func configCommandCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -108,7 +106,7 @@ func configCommandCompletion() func(*cobra.Command, []string, string) ([]string,
 func initCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Create a .cbox.yml config in the current project",
+		Short: "Create a .cbox.toml config in the current project",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 
@@ -174,20 +172,8 @@ func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
 		return
 	}
 
-	t, err := template.New("").Parse(openCmd)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not parse open command template: %v\n", err)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, map[string]string{"Dir": state.WorktreePath}); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not render open command template: %v\n", err)
-		return
-	}
-
-	rendered := buf.String()
-	c := exec.Command("sh", "-c", rendered)
+	c := exec.Command("sh", "-c", openCmd)
+	c.Env = append(os.Environ(), "Dir="+state.WorktreePath)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {
@@ -224,7 +210,7 @@ func chatCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use {{.Dir}} for worktree path)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path)")
 	return cmd
 }
 
@@ -297,13 +283,13 @@ func cleanCmd() *cobra.Command {
 func runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run <command>",
-		Short: "Run a named command from .cbox.yml",
-		Long: `Run a named command defined in the commands section of .cbox.yml.
+		Short: "Run a named command from .cbox.toml",
+		Long: `Run a named command defined in the commands section of .cbox.toml.
 For example, if your config has:
 
-  commands:
-    build: "go build ./..."
-    test: "go test ./..."
+  [commands]
+  build = "go build ./..."
+  test = "go test ./..."
 
 Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
 		Args:              cobra.ExactArgs(1),
@@ -453,7 +439,7 @@ func flowCmd() *cobra.Command {
 func flowInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Add default workflow config to .cbox.yml",
+		Short: "Add default workflow config to .cbox.toml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowInit(projectDir())
 		},
@@ -504,7 +490,7 @@ func flowChatCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use {{.Dir}} for worktree path)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path)")
 	return cmd
 }
 

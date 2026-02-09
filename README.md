@@ -80,7 +80,7 @@ cd your-project
 
 # Create config
 cbox init
-# Edit .cbox.yml to set your build/test commands
+# Edit .cbox.toml to set your build/test commands
 
 # Start sandbox on a new branch
 cbox up feat-my-feature
@@ -103,17 +103,15 @@ cbox clean feat-my-feature
 
 ## Configuration
 
-Create `.cbox.yml` in your project root (`cbox init` generates a starter config):
+Create `.cbox.toml` in your project root (`cbox init` generates a starter config):
 
-```yaml
-commands:
-  build: "npm run build"
-  test: "npm test"
-env:
-  - ANTHROPIC_API_KEY        # read from host environment
-host_commands:
-  - git
-  - gh
+```toml
+env = ["ANTHROPIC_API_KEY"]  # read from host environment
+host_commands = ["git", "gh"]
+
+[commands]
+build = "npm run build"
+test = "npm test"
 ```
 
 ### Fields
@@ -130,7 +128,7 @@ host_commands:
 
 ### `cbox init`
 
-Creates a default `.cbox.yml` in the current directory with placeholder `build` and `test` commands, and `git`/`gh` as default host commands.
+Creates a default `.cbox.toml` in the current directory with placeholder `build` and `test` commands, and `git`/`gh` as default host commands.
 
 ### `cbox up <branch>`
 
@@ -174,10 +172,10 @@ Each entry in `commands` becomes a dedicated MCP tool named `cbox_<name>`. When 
 
 For example, with this config:
 
-```yaml
-commands:
-  test: "npm test"
-  build: "npm run build"
+```toml
+[commands]
+test = "npm test"
+build = "npm run build"
 ```
 
 Claude sees two MCP tools: `cbox_test` and `cbox_build`. Calling `cbox_test` runs `sh -c 'npm test'` on the host in the worktree directory.
@@ -188,10 +186,8 @@ Claude inside the container doesn't have access to host tools like `git` or `gh`
 
 When `host_commands` or `commands` are configured, `cbox up` starts an MCP server on the host. Claude Code in the container connects to it automatically via `.mcp.json`. A system-level `CLAUDE.md` is also injected to tell Claude how to use the available tools.
 
-```yaml
-host_commands:
-  - git
-  - gh
+```toml
+host_commands = ["git", "gh"]
 ```
 
 With this config, Claude can run `git status`, `gh pr create`, etc. on the host via the `run_command` tool. Commands not in the whitelist are rejected.
@@ -205,7 +201,7 @@ Workflow orchestration for task-driven development. Creates an issue, spins up a
 ### Setup
 
 ```bash
-# Add workflow config to .cbox.yml (defaults use gh CLI)
+# Add workflow config to .cbox.toml (defaults use gh CLI)
 cbox flow init
 ```
 
@@ -250,25 +246,28 @@ cbox flow start --yolo "Add user authentication"
 
 ### Workflow config
 
-The `workflow` section of `.cbox.yml` controls issue tracking commands:
+The `workflow` section of `.cbox.toml` controls issue tracking commands:
 
-```yaml
-workflow:
-  branch: "{{.Slug}}"
-  issue:
-    create: 'gh issue create --title "{{.Title}}" --body "{{.Description}}" | grep -o ''[0-9]*$'''
-    view: 'gh issue view {{.IssueID}}'
-    close: 'gh issue close {{.IssueID}}'
-    set_status: 'gh issue edit {{.IssueID}} --add-label "{{.Status}}"'
-    comment: 'gh issue comment {{.IssueID}} --body "{{.Body}}"'
-  pr:
-    create: 'gh pr create --title "{{.Title}}" --body "{{.Description}}"'
-    merge: 'gh pr merge {{.PRURL}} --merge'
-  prompts:
-    yolo: "custom prompt for --yolo mode (optional)"
+```toml
+[workflow]
+branch = "$Slug"
+
+[workflow.issue]
+create = "gh issue create --title \"$Title\" --body \"$Description\" | grep -o '[0-9]*$'"
+view = "gh issue view \"$IssueID\" --json number,title,body,labels,state,url"
+close = "gh issue close \"$IssueID\""
+set_status = "gh issue edit \"$IssueID\" --add-label \"$Status\""
+comment = "gh issue comment \"$IssueID\" --body \"$Body\""
+
+[workflow.pr]
+create = "gh pr create --title \"$Title\" --body \"$Description\""
+merge = "gh pr merge \"$PRNumber\" --merge"
+
+[workflow.prompts]
+yolo = "custom prompt for --yolo mode (optional)"
 ```
 
-All commands are Go templates. Replace with your issue tracker's CLI as needed.
+All commands use shell variable substitution (`$VarName`). Values are passed as environment variables so they're safe from shell metacharacter injection. Replace with your issue tracker's CLI as needed.
 
 ## Docker resources
 

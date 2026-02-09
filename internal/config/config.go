@@ -19,6 +19,7 @@ type Config struct {
 	HostCommands []string          `toml:"host_commands,omitempty"`
 	Dockerfile   string            `toml:"dockerfile,omitempty"`
 	Open         string            `toml:"open,omitempty"`
+	Editor       string            `toml:"editor,omitempty"`
 	Workflow     *WorkflowConfig   `toml:"workflow,omitempty"`
 }
 

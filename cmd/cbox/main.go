@@ -447,17 +447,31 @@ func flowInitCmd() *cobra.Command {
 }
 
 func flowStartCmd() *cobra.Command {
+	var description string
 	var yolo bool
 
 	cmd := &cobra.Command{
-		Use:   "start <description>",
+		Use:   "start",
 		Short: "Begin a new workflow: create issue and sandbox",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowStart(projectDir(), args[0], yolo)
+			if description == "" {
+				cfg, _ := config.Load(projectDir())
+				var editorCfg string
+				if cfg != nil {
+					editorCfg = cfg.Editor
+				}
+				var err error
+				description, err = workflow.EditDescription(editorCfg)
+				if err != nil {
+					return err
+				}
+			}
+			return workflow.FlowStart(projectDir(), description, yolo)
 		},
 	}
 
+	cmd.Flags().StringVarP(&description, "description", "d", "", "Flow description (opens editor if omitted)")
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
 	return cmd
 }

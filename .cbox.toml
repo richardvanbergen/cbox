@@ -2,6 +2,7 @@ env = ["ANTHROPIC_API_KEY"]
 host_commands = ["git", "gh"]
 editor = "nvim"
 dockerfile = "Dockerfile.cbox"
+open = "zellij action new-pane --close-on-exit --cwd $Dir -- $SHELL"
 
 [commands]
 build = "go build -o bin/cbox ./cmd/cbox"

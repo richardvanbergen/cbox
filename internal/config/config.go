@@ -17,6 +17,7 @@ type Config struct {
 	Browser      bool              `yaml:"browser,omitempty"`
 	HostCommands []string          `yaml:"host_commands,omitempty"`
 	Dockerfile   string            `yaml:"dockerfile,omitempty"`
+	Open         string            `yaml:"open,omitempty"`
 	Workflow     *WorkflowConfig   `yaml:"workflow,omitempty"`
 }
 

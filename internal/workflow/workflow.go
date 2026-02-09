@@ -185,7 +185,7 @@ Do NOT use gh or any tool to:
 }
 
 // FlowChat refreshes the task file from the issue and opens an interactive chat.
-func FlowChat(projectDir, branch string) error {
+func FlowChat(projectDir, branch, openCmd string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -216,6 +216,17 @@ func FlowChat(projectDir, branch string) error {
 			if err := writeTaskFile(sandboxState.WorktreePath, state.IssueID, issueContent); err != nil {
 				fmt.Printf("Warning: could not update task file: %v\n", err)
 			}
+		}
+	}
+
+	// Run open command (flag overrides config)
+	open := openCmd
+	if open == "" {
+		open = cfg.Open
+	}
+	if open != "" {
+		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
+			fmt.Printf("Warning: open command failed: %v\n", err)
 		}
 	}
 

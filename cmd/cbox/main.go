@@ -13,6 +13,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
+	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ func main() {
 	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
+	root.AddCommand(testOutputCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -47,7 +49,7 @@ func main() {
 func projectDir() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		output.Error("%v", err)
 		os.Exit(1)
 	}
 	return dir
@@ -119,8 +121,8 @@ func initCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("Created %s\n", config.ConfigFile)
-			fmt.Println("Edit the file to configure your commands, env vars, and host commands.")
+			output.Success("Created %s", config.ConfigFile)
+			output.Text("Edit the file to configure your commands, env vars, and host commands.")
 			return nil
 		},
 	}
@@ -168,7 +170,7 @@ func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
 
 	state, err := sandbox.LoadState(projectDir, branch)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not load sandbox state for open command: %v\n", err)
+		output.Warning("Could not load sandbox state for open command: %v", err)
 		return
 	}
 
@@ -177,7 +179,7 @@ func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: open command failed: %v\n", err)
+		output.Warning("Open command failed: %v", err)
 	}
 }
 
@@ -238,7 +240,7 @@ func listCmd() *cobra.Command {
 			}
 
 			if len(states) == 0 {
-				fmt.Println("No active sandboxes.")
+				output.Text("No active sandboxes.")
 				return nil
 			}
 
@@ -249,7 +251,7 @@ func listCmd() *cobra.Command {
 				} else {
 					status = "stopped"
 				}
-				fmt.Printf("%-30s %s\n", s.Branch, status)
+				output.Text("%-30s %s", s.Branch, status)
 			}
 			return nil
 		},
@@ -360,9 +362,9 @@ func ejectCmd() *cobra.Command {
 				return fmt.Errorf("updating %s: %w", config.ConfigFile, err)
 			}
 
-			fmt.Printf("Created %s and updated %s.\n", filename, config.ConfigFile)
-			fmt.Println("Edit Dockerfile.cbox to customize the container image.")
-			fmt.Println("Rebuild existing branches with: cbox up --rebuild <branch>")
+			output.Success("Created %s and updated %s.", filename, config.ConfigFile)
+			output.Text("Edit Dockerfile.cbox to customize the container image.")
+			output.Text("Rebuild existing branches with: cbox up --rebuild <branch>")
 			return nil
 		},
 	}
@@ -546,6 +548,42 @@ func flowAbandonCmd() *cobra.Command {
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowAbandon(projectDir(), args[0])
+		},
+	}
+}
+
+func testOutputCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "_test-output",
+		Short:  "Internal: render sample structured output blocks",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			blocks := []output.Block{
+				output.ProgressBlock{Message: "Creating worktree for branch feature/auth..."},
+				output.SuccessBlock{Message: "Worktree created at /tmp/cbox/feature-auth"},
+				output.ProgressBlock{Message: "Building container image..."},
+				output.SuccessBlock{Message: "Container image built"},
+				output.ProgressBlock{Message: "Starting sandbox container..."},
+				output.WarningBlock{Message: "Port 8080 is already in use, using 8081"},
+				output.SuccessBlock{Message: "Sandbox running (container: cbox-feature-auth)"},
+				output.ProgressBlock{Message: "Running Claude prompt..."},
+				output.TextBlock{Text: "I'll help you implement the authentication module. Let me start by reading the existing code."},
+				output.ToolUseBlock{
+					ID:    "toolu_01ABC",
+					Name:  "Read",
+					Input: json.RawMessage(`{"file_path":"/workspace/internal/auth/auth.go"}`),
+				},
+				output.TextBlock{Text: "Now I'll create the login handler with session management."},
+				output.ToolUseBlock{
+					ID:    "toolu_02DEF",
+					Name:  "Write",
+					Input: json.RawMessage(`{"file_path":"/workspace/internal/auth/login.go","content":"package auth\n..."}`),
+				},
+				output.SuccessBlock{Message: "Claude prompt completed"},
+				output.ErrorBlock{Message: "Failed to push branch: remote rejected"},
+			}
+			output.Render(os.Stdout, blocks)
+			return nil
 		},
 	}
 }

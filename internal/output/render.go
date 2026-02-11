@@ -5,7 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
+
+	"github.com/charmbracelet/lipgloss/v2"
+)
+
+var (
+	progressPrefix = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	successPrefix  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
+	warningPrefix  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
+	errorPrefix    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
+
+	toolHeader = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	toolBorder = lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("4")).
+			PaddingLeft(1)
+	toolInput = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 // Render writes all blocks to w in order.
@@ -21,22 +37,28 @@ func RenderBlock(w io.Writer, b Block) {
 	case TextBlock:
 		fmt.Fprintln(w, v.Text)
 	case ToolUseBlock:
-		fmt.Fprintf(w, "[tool_use] %s (id: %s)\n", v.Name, v.ID)
+		header := toolHeader.Render(v.Name) + " " + v.ID
+		var body string
 		if len(v.Input) > 0 {
 			var indented bytes.Buffer
-			if json.Indent(&indented, v.Input, "  ", "  ") == nil {
-				for _, line := range strings.Split(indented.String(), "\n") {
-					fmt.Fprintf(w, "  %s\n", line)
-				}
+			if json.Indent(&indented, v.Input, "", "  ") == nil {
+				body = toolInput.Render(indented.String())
 			}
 		}
+		var content string
+		if body != "" {
+			content = header + "\n" + body
+		} else {
+			content = header
+		}
+		fmt.Fprintln(w, toolBorder.Render(content))
 	case ProgressBlock:
-		fmt.Fprintf(w, "... %s\n", v.Message)
+		fmt.Fprintln(w, progressPrefix.Render("...")+" "+v.Message)
 	case SuccessBlock:
-		fmt.Fprintf(w, "  ✓ %s\n", v.Message)
+		fmt.Fprintln(w, successPrefix.Render("✓")+" "+v.Message)
 	case WarningBlock:
-		fmt.Fprintf(w, "  ! %s\n", v.Message)
+		fmt.Fprintln(w, warningPrefix.Render("!")+" "+v.Message)
 	case ErrorBlock:
-		fmt.Fprintf(w, "  ✗ %s\n", v.Message)
+		fmt.Fprintln(w, errorPrefix.Render("✗")+" "+v.Message)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
+	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ func main() {
 	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
+	root.AddCommand(testOutputCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -546,6 +548,42 @@ func flowAbandonCmd() *cobra.Command {
 		ValidArgsFunction: branchCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowAbandon(projectDir(), args[0])
+		},
+	}
+}
+
+func testOutputCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "_test-output",
+		Short:  "Internal: render sample structured output blocks",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			blocks := []output.Block{
+				output.ProgressBlock{Message: "Creating worktree for branch feature/auth..."},
+				output.SuccessBlock{Message: "Worktree created at /tmp/cbox/feature-auth"},
+				output.ProgressBlock{Message: "Building container image..."},
+				output.SuccessBlock{Message: "Container image built"},
+				output.ProgressBlock{Message: "Starting sandbox container..."},
+				output.WarningBlock{Message: "Port 8080 is already in use, using 8081"},
+				output.SuccessBlock{Message: "Sandbox running (container: cbox-feature-auth)"},
+				output.ProgressBlock{Message: "Running Claude prompt..."},
+				output.TextBlock{Text: "I'll help you implement the authentication module. Let me start by reading the existing code."},
+				output.ToolUseBlock{
+					ID:    "toolu_01ABC",
+					Name:  "Read",
+					Input: json.RawMessage(`{"file_path":"/workspace/internal/auth/auth.go"}`),
+				},
+				output.TextBlock{Text: "Now I'll create the login handler with session management."},
+				output.ToolUseBlock{
+					ID:    "toolu_02DEF",
+					Name:  "Write",
+					Input: json.RawMessage(`{"file_path":"/workspace/internal/auth/login.go","content":"package auth\n..."}`),
+				},
+				output.SuccessBlock{Message: "Claude prompt completed"},
+				output.ErrorBlock{Message: "Failed to push branch: remote rejected"},
+			}
+			output.Render(os.Stdout, blocks)
+			return nil
 		},
 	}
 }

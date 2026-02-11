@@ -24,9 +24,12 @@ var (
 	toolInput = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-// Render writes all blocks to w in order.
+// Render writes all blocks to w in order, with a blank line between blocks.
 func Render(w io.Writer, blocks []Block) {
-	for _, b := range blocks {
+	for i, b := range blocks {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
 		RenderBlock(w, b)
 	}
 }

@@ -49,7 +49,7 @@ func main() {
 func projectDir() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		output.Error("%v", err)
 		os.Exit(1)
 	}
 	return dir
@@ -121,8 +121,8 @@ func initCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("Created %s\n", config.ConfigFile)
-			fmt.Println("Edit the file to configure your commands, env vars, and host commands.")
+			output.Success("Created %s", config.ConfigFile)
+			output.Text("Edit the file to configure your commands, env vars, and host commands.")
 			return nil
 		},
 	}
@@ -170,7 +170,7 @@ func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
 
 	state, err := sandbox.LoadState(projectDir, branch)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not load sandbox state for open command: %v\n", err)
+		output.Warning("Could not load sandbox state for open command: %v", err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: open command failed: %v\n", err)
+		output.Warning("Open command failed: %v", err)
 	}
 }
 
@@ -240,7 +240,7 @@ func listCmd() *cobra.Command {
 			}
 
 			if len(states) == 0 {
-				fmt.Println("No active sandboxes.")
+				output.Text("No active sandboxes.")
 				return nil
 			}
 
@@ -251,7 +251,7 @@ func listCmd() *cobra.Command {
 				} else {
 					status = "stopped"
 				}
-				fmt.Printf("%-30s %s\n", s.Branch, status)
+				output.Text("%-30s %s", s.Branch, status)
 			}
 			return nil
 		},
@@ -362,9 +362,9 @@ func ejectCmd() *cobra.Command {
 				return fmt.Errorf("updating %s: %w", config.ConfigFile, err)
 			}
 
-			fmt.Printf("Created %s and updated %s.\n", filename, config.ConfigFile)
-			fmt.Println("Edit Dockerfile.cbox to customize the container image.")
-			fmt.Println("Rebuild existing branches with: cbox up --rebuild <branch>")
+			output.Success("Created %s and updated %s.", filename, config.ConfigFile)
+			output.Text("Edit Dockerfile.cbox to customize the container image.")
+			output.Text("Rebuild existing branches with: cbox up --rebuild <branch>")
 			return nil
 		},
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -64,4 +65,29 @@ func RenderBlock(w io.Writer, b Block) {
 	case ErrorBlock:
 		fmt.Fprintln(w, errorPrefix.Render("✗")+" "+v.Message)
 	}
+}
+
+// Progress writes a styled progress message to stdout.
+func Progress(format string, args ...any) {
+	RenderBlock(os.Stdout, ProgressBlock{Message: fmt.Sprintf(format, args...)})
+}
+
+// Success writes a styled success message to stdout.
+func Success(format string, args ...any) {
+	RenderBlock(os.Stdout, SuccessBlock{Message: fmt.Sprintf(format, args...)})
+}
+
+// Warning writes a styled warning message to stdout.
+func Warning(format string, args ...any) {
+	RenderBlock(os.Stdout, WarningBlock{Message: fmt.Sprintf(format, args...)})
+}
+
+// Error writes a styled error message to stdout.
+func Error(format string, args ...any) {
+	RenderBlock(os.Stdout, ErrorBlock{Message: fmt.Sprintf(format, args...)})
+}
+
+// Text writes a styled text message to stdout.
+func Text(format string, args ...any) {
+	RenderBlock(os.Stdout, TextBlock{Text: fmt.Sprintf(format, args...)})
 }

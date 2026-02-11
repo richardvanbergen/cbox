@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -162,5 +163,44 @@ func TestParseClaudeBlocksInvalidJSON(t *testing.T) {
 	_, err := ParseClaudeBlocks([]byte(`not json`))
 	if err == nil {
 		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestConvenienceFunctions(t *testing.T) {
+	tests := []struct {
+		name   string
+		call   func()
+		prefix string
+		msg    string
+	}{
+		{"Progress", func() { Progress("step %d", 1) }, "...", "step 1"},
+		{"Success", func() { Success("done %s", "ok") }, "✓", "done ok"},
+		{"Warning", func() { Warning("low %s", "disk") }, "!", "low disk"},
+		{"Error", func() { Error("fail %d", 42) }, "✗", "fail 42"},
+		{"Text", func() { Text("info %s", "val") }, "", "info val"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, _ := os.Pipe()
+			old := os.Stdout
+			os.Stdout = w
+
+			tt.call()
+
+			w.Close()
+			os.Stdout = old
+
+			var buf bytes.Buffer
+			buf.ReadFrom(r)
+			got := buf.String()
+
+			if tt.prefix != "" && !strings.Contains(got, tt.prefix) {
+				t.Errorf("expected prefix %q in output %q", tt.prefix, got)
+			}
+			if !strings.Contains(got, tt.msg) {
+				t.Errorf("expected message %q in output %q", tt.msg, got)
+			}
+		})
 	}
 }

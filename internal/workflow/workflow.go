@@ -10,6 +10,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
 	"github.com/richvanbergen/cbox/internal/hostcmd"
+	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 )
 
@@ -50,8 +51,8 @@ func FlowInit(projectDir string) error {
 		return err
 	}
 
-	fmt.Printf("Added workflow config to %s\n", config.ConfigFile)
-	fmt.Println("Defaults use 'gh' CLI. Edit the workflow section to use a different issue tracker.")
+	output.Success("Added workflow config to %s", config.ConfigFile)
+	output.Text("Defaults use 'gh' CLI. Edit the workflow section to use a different issue tracker.")
 	return nil
 }
 
@@ -81,7 +82,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	title := summarize(description)
 	var issueID string
 	if wf.Issue != nil && wf.Issue.Create != "" {
-		fmt.Println("Creating issue...")
+		output.Progress("Creating issue...")
 		issueID, err = runShellCommand(wf.Issue.Create, map[string]string{
 			"Title":       title,
 			"Description": description,
@@ -89,7 +90,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 		if err != nil {
 			return fmt.Errorf("creating issue: %w", err)
 		}
-		fmt.Printf("Created issue #%s\n", issueID)
+		output.Success("Created issue #%s", issueID)
 	}
 
 	// Create flow state
@@ -108,7 +109,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 
 	// Start sandbox with report dir
 	repDir := reportDir(projectDir, branch)
-	fmt.Println("Starting sandbox...")
+	output.Progress("Starting sandbox...")
 	if err := sandbox.UpWithOptions(projectDir, branch, sandbox.UpOptions{
 		ReportDir:  repDir,
 		FlowBranch: branch,
@@ -131,12 +132,12 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	}
 
 	if issueID != "" && wf.Issue != nil && wf.Issue.View != "" {
-		fmt.Println("Fetching issue content...")
+		output.Progress("Fetching issue content...")
 		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": issueID,
 		})
 		if err != nil {
-			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+			output.Warning("Could not fetch issue content: %v", err)
 		} else {
 			issueInfo, parseErr := parseIssueJSON(issueContent)
 			if parseErr != nil {
@@ -182,7 +183,7 @@ Do NOT use gh or any tool to:
 - Push branches (` + "`cbox_flow_pr`" + ` handles pushing)`
 
 	if err := docker.AppendClaudeMD(sandboxState.ClaudeContainer, taskInstruction); err != nil {
-		fmt.Printf("Warning: could not append task instruction to CLAUDE.md: %v\n", err)
+		output.Warning("Could not append task instruction to CLAUDE.md: %v", err)
 	}
 
 	// Update issue status
@@ -196,12 +197,12 @@ Do NOT use gh or any tool to:
 	// Run open command if --open flag was explicitly provided
 	if open := resolveOpenCommand(openFlag, openCmd, cfg.Open); open != "" {
 		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
-			fmt.Printf("Warning: open command failed: %v\n", err)
+			output.Warning("Open command failed: %v", err)
 		}
 	}
 
 	if !yolo {
-		fmt.Printf("\nSandbox ready. Run 'cbox flow chat %s' to begin.\n", branch)
+		output.Success("Sandbox ready. Run 'cbox flow chat %s' to begin.", branch)
 		return nil
 	}
 
@@ -219,12 +220,12 @@ Do NOT use gh or any tool to:
 		"TaskContent": taskContent,
 	})
 
-	fmt.Println("Running in yolo mode...")
+	output.Progress("Running in yolo mode...")
 	if err := sandbox.ChatPrompt(projectDir, branch, prompt); err != nil {
 		return fmt.Errorf("yolo execution failed: %w", err)
 	}
 
-	fmt.Println("Creating PR...")
+	output.Progress("Creating PR...")
 	return FlowPR(projectDir, branch)
 }
 
@@ -259,12 +260,12 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	}
 
 	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.View != "" {
-		fmt.Println("Refreshing task from issue...")
+		output.Progress("Refreshing task from issue...")
 		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": state.IssueID,
 		})
 		if err != nil {
-			fmt.Printf("Warning: could not fetch issue content: %v\n", err)
+			output.Warning("Could not fetch issue content: %v", err)
 			tf.Issue = &IssueInfo{ID: state.IssueID}
 		} else {
 			issueInfo, parseErr := parseIssueJSON(issueContent)
@@ -288,13 +289,13 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	}
 
 	if err := writeStructuredTaskFile(sandboxState.WorktreePath, tf); err != nil {
-		fmt.Printf("Warning: could not update task file: %v\n", err)
+		output.Warning("Could not update task file: %v", err)
 	}
 
 	// Run open command only if --open flag was explicitly provided
 	if open := resolveOpenCommand(openFlag, openCmd, cfg.Open); open != "" {
 		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
-			fmt.Printf("Warning: open command failed: %v\n", err)
+			output.Warning("Open command failed: %v", err)
 		}
 	}
 
@@ -373,14 +374,14 @@ func FlowPR(projectDir, branch string) error {
 	}
 
 	// Push the branch first
-	fmt.Println("Pushing branch...")
+	output.Progress("Pushing branch...")
 	if _, err := runShellCommandInDir("git push -u origin $Branch", map[string]string{
 		"Branch": branch,
 	}, wtPath); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
-	fmt.Println("Creating PR...")
+	output.Progress("Creating PR...")
 	prOutput, err := runShellCommandInDir(wf.PR.Create, map[string]string{
 		"Title":       state.Title,
 		"Description": description,
@@ -391,7 +392,7 @@ func FlowPR(projectDir, branch string) error {
 
 	prURL, prNumber, parseErr := parsePROutput(prOutput)
 	if parseErr != nil {
-		fmt.Printf("Warning: could not parse PR number: %v\n", parseErr)
+		output.Warning("Could not parse PR number: %v", parseErr)
 		prURL = prOutput
 	}
 
@@ -409,7 +410,7 @@ func FlowPR(projectDir, branch string) error {
 			URL:    prURL,
 		}
 		if err := writeStructuredTaskFile(wtPath, existing); err != nil {
-			fmt.Printf("Warning: could not update task file with PR info: %v\n", err)
+			output.Warning("Could not update task file with PR info: %v", err)
 		}
 	}
 
@@ -429,8 +430,8 @@ func FlowPR(projectDir, branch string) error {
 		}
 	}
 
-	fmt.Printf("PR created: %s\n", prURL)
-	fmt.Printf("To merge: cbox flow merge %s\n", branch)
+	output.Success("PR created: %s", prURL)
+	output.Text("To merge: cbox flow merge %s", branch)
 	return nil
 }
 
@@ -457,7 +458,7 @@ func FlowMerge(projectDir, branch string) error {
 			prNumber = extracted
 		}
 
-		fmt.Println("Merging PR...")
+		output.Progress("Merging PR...")
 		if _, err := runShellCommand(wf.PR.Merge, map[string]string{
 			"PRURL":    state.PRURL,
 			"PRNumber": prNumber,
@@ -465,7 +466,7 @@ func FlowMerge(projectDir, branch string) error {
 			return fmt.Errorf("merging PR: %w", err)
 		}
 	} else {
-		fmt.Println("No PR merge command configured — merge manually.")
+		output.Warning("No PR merge command configured — merge manually.")
 	}
 
 	// Update and close issue
@@ -484,9 +485,9 @@ func FlowMerge(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	fmt.Println("Cleaning up sandbox...")
+	output.Progress("Cleaning up sandbox...")
 	if err := sandbox.Clean(projectDir, branch); err != nil {
-		fmt.Printf("Warning: sandbox cleanup failed: %v\n", err)
+		output.Warning("Sandbox cleanup failed: %v", err)
 	}
 
 	// Remove flow state and reports
@@ -495,7 +496,7 @@ func FlowMerge(projectDir, branch string) error {
 	os.RemoveAll(repDir)
 
 	state.Phase = "done"
-	fmt.Println("Flow complete.")
+	output.Success("Flow complete.")
 	return nil
 }
 
@@ -516,39 +517,39 @@ func FlowStatus(projectDir, branch string) error {
 	}
 
 	if len(states) == 0 {
-		fmt.Println("No active flows.")
+		output.Text("No active flows.")
 		return nil
 	}
 
 	for _, s := range states {
-		fmt.Printf("%-30s %-15s %s\n", s.Branch, s.Phase, s.Title)
+		output.Text("%-30s %-15s %s", s.Branch, s.Phase, s.Title)
 	}
 	return nil
 }
 
 func printFlowState(projectDir string, s *FlowState) {
-	fmt.Printf("Branch:      %s\n", s.Branch)
-	fmt.Printf("Title:       %s\n", s.Title)
+	output.Text("Branch:      %s", s.Branch)
+	output.Text("Title:       %s", s.Title)
 	if s.Description != "" {
-		fmt.Printf("Description: %s\n", s.Description)
+		output.Text("Description: %s", s.Description)
 	}
-	fmt.Printf("Phase:       %s\n", s.Phase)
+	output.Text("Phase:       %s", s.Phase)
 	if s.IssueID != "" {
-		fmt.Printf("Issue:       #%s\n", s.IssueID)
+		output.Text("Issue:       #%s", s.IssueID)
 	}
 	if s.PRURL != "" {
-		fmt.Printf("PR:          %s\n", s.PRURL)
+		output.Text("PR:          %s", s.PRURL)
 	}
-	fmt.Printf("Auto mode:   %v\n", s.AutoMode)
-	fmt.Printf("Created:     %s\n", s.CreatedAt.Format(time.RFC3339))
-	fmt.Printf("Updated:     %s\n", s.UpdatedAt.Format(time.RFC3339))
+	output.Text("Auto mode:   %v", s.AutoMode)
+	output.Text("Created:     %s", s.CreatedAt.Format(time.RFC3339))
+	output.Text("Updated:     %s", s.UpdatedAt.Format(time.RFC3339))
 
 	// Show latest report summary
 	repDir := reportDir(projectDir, s.Branch)
 	reports, err := hostcmd.LoadReports(repDir)
 	if err == nil && len(reports) > 0 {
 		latest := reports[len(reports)-1]
-		fmt.Printf("\nLatest report (%s): %s\n", latest.Type, latest.Title)
+		output.Text("Latest report (%s): %s", latest.Type, latest.Title)
 	}
 }
 
@@ -582,9 +583,9 @@ func FlowAbandon(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	fmt.Println("Cleaning up sandbox...")
+	output.Progress("Cleaning up sandbox...")
 	if err := sandbox.Clean(projectDir, branch); err != nil {
-		fmt.Printf("Warning: sandbox cleanup failed: %v\n", err)
+		output.Warning("Sandbox cleanup failed: %v", err)
 	}
 
 	// Remove flow state and reports
@@ -592,6 +593,6 @@ func FlowAbandon(projectDir, branch string) error {
 	repDir := reportDir(projectDir, branch)
 	os.RemoveAll(repDir)
 
-	fmt.Printf("Flow '%s' abandoned.\n", state.Title)
+	output.Success("Flow '%s' abandoned.", state.Title)
 	return nil
 }

@@ -157,10 +157,15 @@ func downCmd() *cobra.Command {
 	}
 }
 
-// runOpenCommand resolves and runs the open command (flag overrides config).
+// runOpenCommand resolves and runs the open command.
+// The command only runs if openFlag is true (i.e. --open was explicitly passed).
+// When openFlag is true, flagValue is used; if empty, falls back to cfg.Open.
 // Errors are warned about but don't block execution.
-func runOpenCommand(cfg *config.Config, flagValue, projectDir, branch string) {
-	openCmd := flagValue
+func runOpenCommand(cfg *config.Config, openFlag bool, flagValue, projectDir, branch string) {
+	if !openFlag {
+		return
+	}
+	openCmd := strings.TrimSpace(flagValue)
 	if openCmd == "" && cfg != nil {
 		openCmd = cfg.Open
 	}
@@ -202,7 +207,8 @@ func chatCmd() *cobra.Command {
 				chrome = cfg.Browser
 			}
 
-			runOpenCommand(cfg, openCmd, dir, branch)
+			openFlag := cmd.Flags().Changed("open")
+			runOpenCommand(cfg, openFlag, openCmd, dir, branch)
 
 			if prompt != "" {
 				return sandbox.ChatPrompt(dir, branch, prompt)
@@ -212,7 +218,8 @@ func chatCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path)")
+	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
 

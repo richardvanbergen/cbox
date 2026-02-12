@@ -579,17 +579,16 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	if s.Description != "" {
 		output.Text("Description: %s", s.Description)
 	}
-	output.Text("Phase:       %s", s.Phase)
+	phase := s.Phase
+	if prStatus := fetchPRStatus(wf, s); prStatus != nil {
+		phase = formatPRPhase(prStatus)
+	}
+	output.Text("Phase:       %s", phase)
 	if s.IssueID != "" {
 		output.Text("Issue:       #%s", s.IssueID)
 	}
 	if s.PRURL != "" {
 		output.Text("PR:          %s", s.PRURL)
-	}
-
-	// Fetch and display live PR status
-	if prStatus := fetchPRStatus(wf, s); prStatus != nil {
-		output.Text("PR status:   %s", formatPRPhase(prStatus))
 	}
 
 	output.Text("Auto mode:   %v", s.AutoMode)

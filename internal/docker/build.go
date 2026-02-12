@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/richvanbergen/cbox/internal/output"
 )
 
 //go:embed templates/Dockerfile.claude.tmpl templates/entrypoint.sh
@@ -63,9 +65,12 @@ func BuildClaudeImage(imageName string, opts BuildOptions) error {
 	buildArgs = append(buildArgs, tmpDir)
 
 	cmd := exec.Command("docker", buildArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	cw := output.NewCommandWriter(os.Stdout)
+	cmd.Stdout = cw
+	cmd.Stderr = cw
+	err = cmd.Run()
+	cw.Close()
+	if err != nil {
 		return fmt.Errorf("building claude image: %w", err)
 	}
 	return nil

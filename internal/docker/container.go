@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/richvanbergen/cbox/internal/bridge"
+	"github.com/richvanbergen/cbox/internal/output"
 )
 
 // ContainerName returns a deterministic container name with a role suffix.
@@ -87,10 +88,13 @@ func RunClaudeContainer(name, image, network, worktreePath string, envVars []str
 	args = append(args, image)
 
 	cmd := exec.Command("docker", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker run (claude): %w", err)
+	cw := output.NewCommandWriter(os.Stdout)
+	cmd.Stdout = cw
+	cmd.Stderr = cw
+	runErr := cmd.Run()
+	cw.Close()
+	if runErr != nil {
+		return fmt.Errorf("docker run (claude): %w", runErr)
 	}
 	return nil
 }

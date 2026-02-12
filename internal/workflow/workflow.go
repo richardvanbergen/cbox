@@ -82,7 +82,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	title := summarize(description)
 	var issueID string
 	if wf.Issue != nil && wf.Issue.Create != "" {
-		output.Progress("Creating issue...")
+		output.Progress("Creating issue")
 		issueID, err = runShellCommand(wf.Issue.Create, map[string]string{
 			"Title":       title,
 			"Description": description,
@@ -109,7 +109,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 
 	// Start sandbox with report dir
 	repDir := reportDir(projectDir, branch)
-	output.Progress("Starting sandbox...")
+	output.Progress("Starting sandbox")
 	if err := sandbox.UpWithOptions(projectDir, branch, sandbox.UpOptions{
 		ReportDir:  repDir,
 		FlowBranch: branch,
@@ -132,7 +132,7 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	}
 
 	if issueID != "" && wf.Issue != nil && wf.Issue.View != "" {
-		output.Progress("Fetching issue content...")
+		output.Progress("Fetching issue content")
 		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": issueID,
 		})
@@ -220,12 +220,12 @@ Do NOT use gh or any tool to:
 		"TaskContent": taskContent,
 	})
 
-	output.Progress("Running in yolo mode...")
+	output.Progress("Running in yolo mode")
 	if err := sandbox.ChatPrompt(projectDir, branch, prompt); err != nil {
 		return fmt.Errorf("yolo execution failed: %w", err)
 	}
 
-	output.Progress("Creating PR...")
+	output.Progress("Creating PR")
 	return FlowPR(projectDir, branch)
 }
 
@@ -260,7 +260,7 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	}
 
 	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.View != "" {
-		output.Progress("Refreshing task from issue...")
+		output.Progress("Refreshing task from issue")
 		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
 			"IssueID": state.IssueID,
 		})
@@ -374,14 +374,14 @@ func FlowPR(projectDir, branch string) error {
 	}
 
 	// Push the branch first
-	output.Progress("Pushing branch...")
+	output.Progress("Pushing branch")
 	if _, err := runShellCommandInDir("git push -u origin $Branch", map[string]string{
 		"Branch": branch,
 	}, wtPath); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
-	output.Progress("Creating PR...")
+	output.Progress("Creating PR")
 	prOutput, err := runShellCommandInDir(wf.PR.Create, map[string]string{
 		"Title":       state.Title,
 		"Description": description,
@@ -458,7 +458,7 @@ func FlowMerge(projectDir, branch string) error {
 			prNumber = extracted
 		}
 
-		output.Progress("Merging PR...")
+		output.Progress("Merging PR")
 		if _, err := runShellCommand(wf.PR.Merge, map[string]string{
 			"PRURL":    state.PRURL,
 			"PRNumber": prNumber,
@@ -485,7 +485,7 @@ func FlowMerge(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	output.Progress("Cleaning up sandbox...")
+	output.Progress("Cleaning up sandbox")
 	if err := sandbox.Clean(projectDir, branch); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}
@@ -646,7 +646,7 @@ func FlowAbandon(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	output.Progress("Cleaning up sandbox...")
+	output.Progress("Cleaning up sandbox")
 	if err := sandbox.Clean(projectDir, branch); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}

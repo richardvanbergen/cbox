@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -23,6 +24,8 @@ var (
 			BorderForeground(lipgloss.Color("4")).
 			PaddingLeft(1)
 	toolInput = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+	cmdBorder = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 // Render writes all blocks to w in order, with a blank line between blocks.
@@ -57,7 +60,7 @@ func RenderBlock(w io.Writer, b Block) {
 		}
 		fmt.Fprintln(w, toolBorder.Render(content))
 	case ProgressBlock:
-		fmt.Fprintln(w, progressPrefix.Render("...")+" "+v.Message)
+		fmt.Fprintln(w, progressPrefix.Render("›")+" "+v.Message)
 	case SuccessBlock:
 		fmt.Fprintln(w, successPrefix.Render("✓")+" "+v.Message)
 	case WarningBlock:
@@ -90,4 +93,46 @@ func Error(format string, args ...any) {
 // Text writes a styled text message to stdout.
 func Text(format string, args ...any) {
 	RenderBlock(os.Stdout, TextBlock{Text: fmt.Sprintf(format, args...)})
+}
+
+// CommandWriter wraps an io.Writer and prepends a dim "│ " border to each
+// line of output. It is used to visually frame third-party command output
+// (e.g. docker build logs) so it's easy to distinguish from cbox messages.
+type CommandWriter struct {
+	w    io.Writer
+	buf  []byte
+	once sync.Once
+}
+
+// NewCommandWriter returns a CommandWriter that writes bordered lines to w.
+func NewCommandWriter(w io.Writer) *CommandWriter {
+	return &CommandWriter{w: w}
+}
+
+func (cw *CommandWriter) Write(p []byte) (int, error) {
+	cw.once.Do(func() {
+		fmt.Fprintln(cw.w)
+	})
+
+	cw.buf = append(cw.buf, p...)
+	for {
+		idx := bytes.IndexByte(cw.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := cw.buf[:idx]
+		cw.buf = cw.buf[idx+1:]
+		prefix := cmdBorder.Render("│") + " "
+		fmt.Fprintln(cw.w, prefix+string(line))
+	}
+	return len(p), nil
+}
+
+// Close flushes any remaining buffered content.
+func (cw *CommandWriter) Close() {
+	if len(cw.buf) > 0 {
+		prefix := cmdBorder.Render("│") + " "
+		fmt.Fprintln(cw.w, prefix+string(cw.buf))
+		cw.buf = nil
+	}
 }

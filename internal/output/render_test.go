@@ -266,3 +266,56 @@ func TestCommandWriterFlushOnClose(t *testing.T) {
 		t.Errorf("expected 'no newline' in output, got %q", got)
 	}
 }
+
+func TestPassthroughWriter(t *testing.T) {
+	var buf bytes.Buffer
+	pw := NewPassthroughWriter(&buf)
+	pw.Write([]byte("line one\nline two\n"))
+	pw.Close()
+	got := buf.String()
+
+	if strings.Contains(got, "│") {
+		t.Errorf("PassthroughWriter should not add border, got %q", got)
+	}
+	if !strings.Contains(got, "line one") {
+		t.Errorf("expected 'line one' in output, got %q", got)
+	}
+	if !strings.Contains(got, "line two") {
+		t.Errorf("expected 'line two' in output, got %q", got)
+	}
+}
+
+func TestPassthroughWriterPreservesControlChars(t *testing.T) {
+	var buf bytes.Buffer
+	pw := NewPassthroughWriter(&buf)
+	// Simulate docker build output with carriage return for in-place updates
+	pw.Write([]byte("#5 [1/3] RUN something\r"))
+	pw.Write([]byte("#5 CACHED\n"))
+	pw.Close()
+	got := buf.String()
+
+	if strings.Contains(got, "│") {
+		t.Errorf("PassthroughWriter should not add border, got %q", got)
+	}
+	if !strings.Contains(got, "\r") {
+		t.Errorf("expected carriage return to be preserved, got %q", got)
+	}
+	if !strings.Contains(got, "CACHED") {
+		t.Errorf("expected 'CACHED' in output, got %q", got)
+	}
+}
+
+func TestPassthroughWriterLeadingBlankLine(t *testing.T) {
+	var buf bytes.Buffer
+	pw := NewPassthroughWriter(&buf)
+	pw.Write([]byte("hello"))
+	pw.Close()
+	got := buf.String()
+
+	if !strings.HasPrefix(got, "\n") {
+		t.Errorf("expected leading blank line separator, got %q", got)
+	}
+	if !strings.Contains(got, "hello") {
+		t.Errorf("expected 'hello' in output, got %q", got)
+	}
+}

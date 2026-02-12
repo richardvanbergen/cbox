@@ -65,11 +65,11 @@ func BuildClaudeImage(imageName string, opts BuildOptions) error {
 	buildArgs = append(buildArgs, tmpDir)
 
 	cmd := exec.Command("docker", buildArgs...)
-	cw := output.NewCommandWriter(os.Stdout)
-	cmd.Stdout = cw
-	cmd.Stderr = cw
+	pw := output.NewPassthroughWriter(os.Stdout)
+	cmd.Stdout = pw
+	cmd.Stderr = pw
 	err = cmd.Run()
-	cw.Close()
+	pw.Close()
 	if err != nil {
 		return fmt.Errorf("building claude image: %w", err)
 	}

@@ -18,7 +18,7 @@ const editorTemplate = `
 func EditDescription(editorFromConfig string) (string, error) {
 	editor := resolveEditor(editorFromConfig)
 	if editor == "" {
-		return "", fmt.Errorf("no editor found: set CBOX_EDITOR, VISUAL, or EDITOR env var, or add editor to .cbox.toml")
+		return "", fmt.Errorf("no editor found: set CBOX_EDITOR, VISUAL, or EDITOR env var, or add editor to cbox.toml")
 	}
 
 	tmpFile, err := os.CreateTemp("", "cbox-description-*.txt")

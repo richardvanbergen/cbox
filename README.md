@@ -80,7 +80,7 @@ cd your-project
 
 # Create config
 cbox init
-# Edit .cbox.toml to set your build/test commands
+# Edit cbox.toml to set your build/test commands
 
 # Start sandbox on a new branch
 cbox up feat-my-feature
@@ -103,7 +103,7 @@ cbox clean feat-my-feature
 
 ## Configuration
 
-Create `.cbox.toml` in your project root (`cbox init` generates a starter config):
+Create `cbox.toml` in your project root (`cbox init` generates a starter config):
 
 ```toml
 env = ["ANTHROPIC_API_KEY"]  # read from host environment
@@ -132,7 +132,7 @@ test = "npm test"
 
 ### `cbox init`
 
-Creates a default `.cbox.toml` in the current directory with placeholder `build` and `test` commands, and `git`/`gh` as default host commands.
+Creates a default `cbox.toml` in the current directory with placeholder `build` and `test` commands, and `git`/`gh` as default host commands.
 
 ### `cbox up <branch>`
 
@@ -159,14 +159,14 @@ Opens a bash shell in the Claude container. Useful for debugging.
 
 ### `cbox open <branch>`
 
-Runs the `open` command configured in `.cbox.toml` for the specified sandbox without starting a chat session. Useful for opening your editor or browser to the worktree.
+Runs the `open` command configured in `cbox.toml` for the specified sandbox without starting a chat session. Useful for opening your editor or browser to the worktree.
 
 **Flags:**
 - `--open <command>` — Override the config and run a custom command (use `$Dir` for worktree path)
 
 ### `cbox run <command>`
 
-Runs a named command from the `commands` section of `.cbox.toml` directly on the host machine (not via MCP). Useful for local development workflows.
+Runs a named command from the `commands` section of `cbox.toml` directly on the host machine (not via MCP). Useful for local development workflows.
 
 **Example:**
 ```bash
@@ -179,7 +179,7 @@ cbox run test  # runs 'go test ./...' on the host
 
 ### `cbox eject`
 
-Copies the embedded Dockerfile into your project as `Dockerfile.cbox` and updates `.cbox.toml` to reference it. Use this when you need to customize the container image (e.g., to install runtimes like Node.js or Python).
+Copies the embedded Dockerfile into your project as `Dockerfile.cbox` and updates `cbox.toml` to reference it. Use this when you need to customize the container image (e.g., to install runtimes like Node.js or Python).
 
 After ejecting, you can freely edit `Dockerfile.cbox`. Existing sandboxes need rebuilding with `cbox up --rebuild <branch>`.
 
@@ -279,7 +279,7 @@ By default, cbox uses a minimal Debian-based image with Claude CLI. If you need 
 cbox eject
 ```
 
-This creates `Dockerfile.cbox` in your project and updates `.cbox.toml`:
+This creates `Dockerfile.cbox` in your project and updates `cbox.toml`:
 
 ```toml
 dockerfile = "Dockerfile.cbox"
@@ -344,7 +344,7 @@ Workflow orchestration for task-driven development. Creates an issue, spins up a
 ### Setup
 
 ```bash
-# Add workflow config to .cbox.toml (defaults use gh CLI)
+# Add workflow config to cbox.toml (defaults use gh CLI)
 cbox flow init
 ```
 
@@ -391,7 +391,7 @@ cbox flow start --yolo "Add user authentication"
 
 ### Workflow config
 
-The `workflow` section of `.cbox.toml` controls issue tracking commands.
+The `workflow` section of `cbox.toml` controls issue tracking commands.
 
 You can also configure an `editor` at the top level for editing flow descriptions:
 

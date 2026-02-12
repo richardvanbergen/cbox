@@ -38,7 +38,7 @@ func reportDir(projectDir, branch string) string {
 	return filepath.Join(projectDir, ".cbox", "reports", safeBranch)
 }
 
-// FlowInit writes default workflow config into .cbox.toml.
+// FlowInit writes default workflow config into cbox.toml.
 func FlowInit(projectDir string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {

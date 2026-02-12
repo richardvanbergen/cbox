@@ -82,7 +82,7 @@ func branchCompletion() func(*cobra.Command, []string, string) ([]string, cobra.
 	}
 }
 
-// configCommandCompletion returns a completion function that suggests commands from .cbox.toml.
+// configCommandCompletion returns a completion function that suggests commands from cbox.toml.
 func configCommandCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -112,12 +112,15 @@ func configCommandCompletion() func(*cobra.Command, []string, string) ([]string,
 func initCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Create a .cbox.toml config in the current project",
+		Short: "Create a cbox.toml config in the current project",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 
 			if _, err := os.Stat(config.ConfigFile); err == nil {
 				return fmt.Errorf("%s already exists", config.ConfigFile)
+			}
+			if _, err := os.Stat(config.LegacyConfigFile); err == nil {
+				return fmt.Errorf("%s already exists (rename to %s to use the new name)", config.LegacyConfigFile, config.ConfigFile)
 			}
 
 			cfg := config.DefaultConfig()
@@ -327,8 +330,8 @@ func cleanCmd() *cobra.Command {
 func runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run <command>",
-		Short: "Run a named command from .cbox.toml",
-		Long: `Run a named command defined in the commands section of .cbox.toml.
+		Short: "Run a named command from cbox.toml",
+		Long: `Run a named command defined in the commands section of cbox.toml.
 For example, if your config has:
 
   [commands]
@@ -484,7 +487,7 @@ func flowCmd() *cobra.Command {
 func flowInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Add default workflow config to .cbox.toml",
+		Short: "Add default workflow config to cbox.toml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowInit(projectDir())
 		},

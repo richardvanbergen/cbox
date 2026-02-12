@@ -218,17 +218,17 @@ func TestFindMergedFlows_MixedStates(t *testing.T) {
 	}
 }
 
-// setupFlowCleanDir creates a temp directory with a .cbox.toml config and
+// setupFlowCleanDir creates a temp directory with a cbox.toml config and
 // flow state files for testing flowClean.
 func setupFlowCleanDir(t *testing.T, viewCmd string, states []*FlowState) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Write .cbox.toml
+	// Write cbox.toml
 	toml := `[workflow]
 [workflow.pr]
 view = ` + `"` + viewCmd + `"` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, ".cbox.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -248,7 +248,7 @@ func TestFlowClean_NoActiveFlows(t *testing.T) {
 [workflow.pr]
 view = "echo test"
 `
-	if err := os.WriteFile(filepath.Join(dir, ".cbox.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -261,7 +261,7 @@ view = "echo test"
 func TestFlowClean_NoWorkflowConfig(t *testing.T) {
 	dir := t.TempDir()
 	toml := "[commands]\nbuild = \"echo build\"\n"
-	if err := os.WriteFile(filepath.Join(dir, ".cbox.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 

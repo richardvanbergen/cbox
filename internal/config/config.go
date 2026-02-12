@@ -9,7 +9,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const ConfigFile = ".cbox.toml"
+const ConfigFile = "cbox.toml"
+const LegacyConfigFile = ".cbox.toml"
 
 type Config struct {
 	Commands     map[string]string `toml:"commands,omitempty"`
@@ -82,6 +83,13 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 
 func Load(projectDir string) (*Config, error) {
 	path := filepath.Join(projectDir, ConfigFile)
+	if _, err := os.Stat(path); err != nil {
+		// Fall back to legacy hidden filename for existing projects.
+		legacy := filepath.Join(projectDir, LegacyConfigFile)
+		if _, legacyErr := os.Stat(legacy); legacyErr == nil {
+			path = legacy
+		}
+	}
 	var cfg Config
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", ConfigFile, err)

@@ -31,6 +31,7 @@ func main() {
 	root.AddCommand(upCmd())
 	root.AddCommand(downCmd())
 	root.AddCommand(chatCmd())
+	root.AddCommand(openCmd())
 	root.AddCommand(shellCmd())
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
@@ -189,6 +190,37 @@ func runOpenCommand(cfg *config.Config, openFlag bool, flagValue, projectDir, br
 	if err := c.Run(); err != nil {
 		output.Warning("Open command failed: %v", err)
 	}
+}
+
+func openCmd() *cobra.Command {
+	var openCmdFlag string
+
+	cmd := &cobra.Command{
+		Use:               "open <branch>",
+		Short:             "Run the open command for a sandbox (without starting a chat)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: branchCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := projectDir()
+			branch := args[0]
+
+			cfg, _ := config.Load(dir)
+
+			openExpr := openCmdFlag
+			if openExpr == "" && cfg != nil {
+				openExpr = cfg.Open
+			}
+			if openExpr == "" {
+				return fmt.Errorf("no open command configured — set open in %s or pass --open", config.ConfigFile)
+			}
+
+			runOpenCommand(cfg, openExpr, dir, branch)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&openCmdFlag, "open", "", "Command to run (overrides config; use $Dir for worktree path)")
+	return cmd
 }
 
 func chatCmd() *cobra.Command {

@@ -36,7 +36,7 @@ func TestLoadConfig_ParsesCopyFiles(t *testing.T) {
 	}
 }
 
-func TestLoad_AppliesDefaultPRView(t *testing.T) {
+func TestLoad_MissingPRViewStaysEmpty(t *testing.T) {
 	dir := t.TempDir()
 	// Config has workflow.pr with create and merge but no view — simulates
 	// configs created before the view command was added.
@@ -57,11 +57,10 @@ merge = "gh pr merge \"$PRNumber\" --merge"
 		t.Fatalf("Load: %v", err)
 	}
 
-	defaults := DefaultWorkflowConfig()
-	if cfg.Workflow.PR.View != defaults.PR.View {
-		t.Errorf("PR.View = %q, want default %q", cfg.Workflow.PR.View, defaults.PR.View)
+	if cfg.Workflow.PR.View != "" {
+		t.Errorf("PR.View = %q, want empty (no default backfill)", cfg.Workflow.PR.View)
 	}
-	// Existing values should be preserved, not overwritten.
+	// Existing values should be preserved.
 	if cfg.Workflow.PR.Create != `gh pr create --title "$Title" --body "$Description"` {
 		t.Errorf("PR.Create was overwritten: %q", cfg.Workflow.PR.Create)
 	}

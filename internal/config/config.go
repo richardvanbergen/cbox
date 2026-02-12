@@ -86,24 +86,7 @@ func Load(projectDir string) (*Config, error) {
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", ConfigFile, err)
 	}
-	cfg.applyWorkflowDefaults()
 	return &cfg, nil
-}
-
-// applyWorkflowDefaults fills in missing workflow command fields from defaults.
-// This ensures that commands added in newer versions (e.g. pr.view) are
-// available even when the user's config predates those additions.
-func (c *Config) applyWorkflowDefaults() {
-	if c.Workflow == nil {
-		return
-	}
-	defaults := DefaultWorkflowConfig()
-
-	if c.Workflow.PR != nil {
-		if c.Workflow.PR.View == "" {
-			c.Workflow.PR.View = defaults.PR.View
-		}
-	}
 }
 
 func (c *Config) Save(projectDir string) error {

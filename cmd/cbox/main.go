@@ -21,8 +21,10 @@ import (
 
 func main() {
 	root := &cobra.Command{
-		Use:   "cbox",
-		Short: "Sandboxed development environments for Claude Code",
+		Use:           "cbox",
+		Short:         "Sandboxed development environments for Claude Code",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	root.AddCommand(initCmd())
@@ -42,6 +44,7 @@ func main() {
 	root.AddCommand(testOutputCmd())
 
 	if err := root.Execute(); err != nil {
+		output.Error("%v", err)
 		os.Exit(1)
 	}
 }

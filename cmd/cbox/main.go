@@ -27,6 +27,7 @@ func main() {
 		SilenceErrors: true,
 	}
 
+	root.AddCommand(helloCmd())
 	root.AddCommand(initCmd())
 	root.AddCommand(upCmd())
 	root.AddCommand(downCmd())
@@ -137,6 +138,16 @@ func configCommandCompletion() func(*cobra.Command, []string, string) ([]string,
 			}
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func helloCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "hello",
+		Short: "Say hello",
+		Run: func(cmd *cobra.Command, args []string) {
+			output.Success("Hello from cbox!")
+		},
 	}
 }
 

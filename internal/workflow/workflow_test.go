@@ -38,7 +38,10 @@ func TestFetchPRStatus_NoPRNumber(t *testing.T) {
 	}
 	state := &FlowState{PRNumber: ""}
 
-	status := fetchPRStatus(wf, state)
+	status, err := fetchPRStatus(wf, state)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
 	if status != nil {
 		t.Error("expected nil when PRNumber is empty")
 	}
@@ -47,9 +50,9 @@ func TestFetchPRStatus_NoPRNumber(t *testing.T) {
 func TestFetchPRStatus_NilWorkflow(t *testing.T) {
 	state := &FlowState{PRNumber: "42"}
 
-	status := fetchPRStatus(nil, state)
-	if status != nil {
-		t.Error("expected nil when workflow config is nil")
+	_, err := fetchPRStatus(nil, state)
+	if err == nil {
+		t.Error("expected error when workflow config is nil")
 	}
 }
 
@@ -59,9 +62,9 @@ func TestFetchPRStatus_NoViewCommand(t *testing.T) {
 	}
 	state := &FlowState{PRNumber: "42"}
 
-	status := fetchPRStatus(wf, state)
-	if status != nil {
-		t.Error("expected nil when view command is empty")
+	_, err := fetchPRStatus(wf, state)
+	if err == nil {
+		t.Error("expected error when view command is empty")
 	}
 }
 

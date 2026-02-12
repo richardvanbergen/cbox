@@ -501,10 +501,13 @@ func FlowMerge(projectDir, branch string) error {
 }
 
 // fetchPRStatus fetches the current PR status from the provider.
-// Returns nil if no PR exists or the view command is not configured.
-func fetchPRStatus(wf *config.WorkflowConfig, state *FlowState) *PRStatus {
-	if state.PRNumber == "" || wf == nil || wf.PR == nil || wf.PR.View == "" {
-		return nil
+// Returns an error if the view command is not configured or the fetch fails.
+func fetchPRStatus(wf *config.WorkflowConfig, state *FlowState) (*PRStatus, error) {
+	if state.PRNumber == "" {
+		return nil, nil
+	}
+	if wf == nil || wf.PR == nil || wf.PR.View == "" {
+		return nil, fmt.Errorf("no pr.view command configured — add [workflow.pr] view to %s", config.ConfigFile)
 	}
 
 	prOutput, err := runShellCommand(wf.PR.View, map[string]string{
@@ -512,15 +515,15 @@ func fetchPRStatus(wf *config.WorkflowConfig, state *FlowState) *PRStatus {
 		"PRURL":    state.PRURL,
 	})
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("fetching PR status: %w", err)
 	}
 
 	status, err := parsePRJSON(prOutput)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("parsing PR status: %w", err)
 	}
 
-	return status
+	return status, nil
 }
 
 // FlowStatus shows the status of active flows.
@@ -530,12 +533,17 @@ func FlowStatus(projectDir, branch string) error {
 		return err
 	}
 
+	wf := cfg.Workflow
+	if wf == nil || wf.PR == nil || wf.PR.View == "" {
+		return fmt.Errorf("no pr.view command configured — add [workflow.pr] view to %s", config.ConfigFile)
+	}
+
 	if branch != "" {
 		state, err := LoadFlowState(projectDir, branch)
 		if err != nil {
 			return err
 		}
-		printFlowState(projectDir, cfg.Workflow, state)
+		printFlowState(projectDir, wf, state)
 		return nil
 	}
 
@@ -551,7 +559,11 @@ func FlowStatus(projectDir, branch string) error {
 
 	for _, s := range states {
 		phase := s.Phase
-		if prStatus := fetchPRStatus(cfg.Workflow, s); prStatus != nil {
+		prStatus, err := fetchPRStatus(wf, s)
+		if err != nil {
+			return err
+		}
+		if prStatus != nil {
 			phase = formatPRPhase(prStatus)
 		}
 		output.Text("%-30s %-15s %s", s.Branch, phase, s.Title)
@@ -579,17 +591,16 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	if s.Description != "" {
 		output.Text("Description: %s", s.Description)
 	}
-	output.Text("Phase:       %s", s.Phase)
+	phase := s.Phase
+	if prStatus, _ := fetchPRStatus(wf, s); prStatus != nil {
+		phase = formatPRPhase(prStatus)
+	}
+	output.Text("Phase:       %s", phase)
 	if s.IssueID != "" {
 		output.Text("Issue:       #%s", s.IssueID)
 	}
 	if s.PRURL != "" {
 		output.Text("PR:          %s", s.PRURL)
-	}
-
-	// Fetch and display live PR status
-	if prStatus := fetchPRStatus(wf, s); prStatus != nil {
-		output.Text("PR status:   %s", formatPRPhase(prStatus))
 	}
 
 	output.Text("Auto mode:   %v", s.AutoMode)

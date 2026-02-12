@@ -14,7 +14,7 @@ func TestFormatPRPhase(t *testing.T) {
 	}{
 		{"merged", "MERGED", "merged"},
 		{"open", "OPEN", "pr-open"},
-		{"closed", "CLOSED", "pr-closed"},
+		{"closed", "CLOSED", "closed"},
 		{"lowercase merged", "merged", "merged"},
 		{"unknown state", "DRAFT", "draft"},
 	}

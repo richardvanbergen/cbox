@@ -625,7 +625,7 @@ func formatPRPhase(prStatus *PRStatus) string {
 	case "MERGED":
 		return "merged"
 	case "CLOSED":
-		return "pr-closed"
+		return "closed"
 	case "OPEN":
 		return "pr-open"
 	default:
@@ -641,12 +641,14 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	}
 
 	// Use a spinner if we need to fetch PR status
+	var fetchedPR *PRStatus
 	if s.PRNumber != "" {
 		spinner := output.NewLineSpinner(1)
 		spinner.SetLine(0, "Phase:       %s")
 		go func() {
 			phase := s.Phase
 			if prStatus, err := fetchPRStatus(wf, s); err == nil && prStatus != nil {
+				fetchedPR = prStatus
 				phase = formatPRPhase(prStatus)
 			}
 			spinner.Resolve(0, phase)
@@ -661,6 +663,16 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	}
 	if s.PRURL != "" {
 		output.Text("PR:          %s", s.PRURL)
+	}
+
+	// Show merge/close timestamps when available
+	if fetchedPR != nil {
+		if fetchedPR.MergedAt != "" {
+			output.Text("Merged at:   %s", fetchedPR.MergedAt)
+		}
+		if fetchedPR.ClosedAt != "" {
+			output.Text("Closed at:   %s", fetchedPR.ClosedAt)
+		}
 	}
 
 	output.Text("Auto mode:   %v", s.AutoMode)

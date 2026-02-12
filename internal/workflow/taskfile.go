@@ -109,6 +109,7 @@ type PRStatus struct {
 	Title    string
 	URL      string
 	MergedAt string
+	ClosedAt string
 }
 
 // parsePRJSON parses the JSON output from `gh pr view --json`.
@@ -119,6 +120,7 @@ func parsePRJSON(jsonStr string) (*PRStatus, error) {
 		Title    string `json:"title"`
 		URL      string `json:"url"`
 		MergedAt string `json:"mergedAt"`
+		ClosedAt string `json:"closedAt"`
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
@@ -131,6 +133,7 @@ func parsePRJSON(jsonStr string) (*PRStatus, error) {
 		Title:    raw.Title,
 		URL:      raw.URL,
 		MergedAt: raw.MergedAt,
+		ClosedAt: raw.ClosedAt,
 	}, nil
 }
 

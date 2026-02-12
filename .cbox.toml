@@ -22,3 +22,4 @@ comment = "gh issue comment \"$IssueID\" --body \"$Body\""
 [workflow.pr]
 create = "gh pr create --title \"$Title\" --body \"$Description\""
 merge = "gh pr merge \"$PRURL\" --merge"
+pr = "gh pr view \"$PRNumber\" --json number,state,title,url,mergedAt"

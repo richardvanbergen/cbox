@@ -75,6 +75,11 @@ func ListFlowStates(projectDir string) ([]*FlowState, error) {
 
 	var states []*FlowState
 	for _, m := range matches {
+		// Skip sandbox state files (*.state.json)
+		if strings.HasSuffix(m, ".state.json") {
+			continue
+		}
+
 		data, err := os.ReadFile(m)
 		if err != nil {
 			continue

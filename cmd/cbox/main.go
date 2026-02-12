@@ -214,7 +214,7 @@ func openCmd() *cobra.Command {
 				return fmt.Errorf("no open command configured — set open in %s or pass --open", config.ConfigFile)
 			}
 
-			runOpenCommand(cfg, openExpr, dir, branch)
+			runOpenCommand(cfg, true, openCmdFlag, dir, branch)
 			return nil
 		},
 	}

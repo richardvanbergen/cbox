@@ -102,9 +102,10 @@ func Text(format string, args ...any) {
 // For commands with interactive terminal output (e.g. docker build), connect
 // cmd.Stdout/cmd.Stderr directly to os.Stdout/os.Stderr to preserve TTY.
 type CommandWriter struct {
-	w    io.Writer
-	buf  []byte
-	once sync.Once
+	w     io.Writer
+	buf   []byte
+	once  sync.Once
+	wrote bool
 }
 
 // NewCommandWriter returns a CommandWriter that writes bordered lines to w.
@@ -115,6 +116,7 @@ func NewCommandWriter(w io.Writer) *CommandWriter {
 func (cw *CommandWriter) Write(p []byte) (int, error) {
 	cw.once.Do(func() {
 		fmt.Fprintln(cw.w)
+		cw.wrote = true
 	})
 
 	cw.buf = append(cw.buf, p...)
@@ -131,12 +133,16 @@ func (cw *CommandWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Close flushes any remaining buffered content.
+// Close flushes any remaining buffered content and adds a trailing blank line
+// to visually separate command output from subsequent messages.
 func (cw *CommandWriter) Close() {
 	if len(cw.buf) > 0 {
 		prefix := cmdBorder.Render("│") + " "
 		fmt.Fprintln(cw.w, prefix+string(cw.buf))
 		cw.buf = nil
+	}
+	if cw.wrote {
+		fmt.Fprintln(cw.w)
 	}
 }
 

@@ -86,6 +86,33 @@ func sandboxCompletion() func(*cobra.Command, []string, string) ([]string, cobra
 	}
 }
 
+// flowCompletion returns a completion function that suggests existing flow branches.
+func flowCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		states, err := workflow.ListFlowStates(dir)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		var completions []string
+		for _, s := range states {
+			if s.Branch != "" && strings.HasPrefix(s.Branch, toComplete) {
+				completions = append(completions, s.Branch)
+			}
+		}
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 // configCommandCompletion returns a completion function that suggests commands from cbox.toml.
 func configCommandCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -533,9 +560,10 @@ func flowStartCmd() *cobra.Command {
 
 func flowStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status [branch]",
-		Short: "Show status of active flows",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "status [branch]",
+		Short:             "Show status of active flows",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branch := ""
 			if len(args) > 0 {
@@ -564,7 +592,7 @@ func flowChatCmd() *cobra.Command {
 		Use:               "chat <branch>",
 		Short:             "Refresh task context and open interactive chat",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: sandboxCompletion(),
+		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			openFlag := cmd.Flags().Changed("open")
 			return workflow.FlowChat(projectDir(), args[0], openFlag, openCmd)
@@ -581,7 +609,7 @@ func flowPRCmd() *cobra.Command {
 		Use:               "pr <branch>",
 		Short:             "Create a pull request for the flow",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: sandboxCompletion(),
+		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowPR(projectDir(), args[0])
 		},
@@ -593,7 +621,7 @@ func flowMergeCmd() *cobra.Command {
 		Use:               "merge <branch>",
 		Short:             "Merge the PR and clean up",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: sandboxCompletion(),
+		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowMerge(projectDir(), args[0])
 		},
@@ -605,7 +633,7 @@ func flowAbandonCmd() *cobra.Command {
 		Use:               "abandon <branch>",
 		Short:             "Cancel the flow and clean up",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: sandboxCompletion(),
+		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowAbandon(projectDir(), args[0])
 		},

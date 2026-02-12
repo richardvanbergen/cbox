@@ -107,6 +107,46 @@ func TestLoad_NoWorkflowSection(t *testing.T) {
 	}
 }
 
+func TestLoad_LegacyConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	content := `host_commands = ["git"]` + "\n"
+	// Write config using the legacy hidden filename.
+	if err := os.WriteFile(filepath.Join(dir, LegacyConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load with legacy file: %v", err)
+	}
+
+	if len(cfg.HostCommands) != 1 || cfg.HostCommands[0] != "git" {
+		t.Errorf("HostCommands = %v, want [\"git\"]", cfg.HostCommands)
+	}
+}
+
+func TestLoad_PrefersNewOverLegacy(t *testing.T) {
+	dir := t.TempDir()
+	// Write both files — new name should win.
+	legacy := `host_commands = ["git"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, LegacyConfigFile), []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+	current := `host_commands = ["git", "gh"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(current), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.HostCommands) != 2 {
+		t.Errorf("HostCommands = %v, want [\"git\", \"gh\"] (new file should take priority)", cfg.HostCommands)
+	}
+}
+
 func TestSaveAndLoad_RoundTripCopyFiles(t *testing.T) {
 	dir := t.TempDir()
 

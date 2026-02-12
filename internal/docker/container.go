@@ -234,7 +234,7 @@ For services (databases, redis, etc.), use docker run -d to keep them running.
 
 ### Permanent: configure cbox
 
-These changes go in .cbox.toml and persist across sessions. After any change,
+These changes go in cbox.toml and persist across sessions. After any change,
 the user must rebuild: `+"`cbox up <branch> --rebuild`"+`
 
 **Add a host command** — expose a tool already installed on the host machine:
@@ -255,7 +255,7 @@ run = "go run ./cmd/myapp"
 dockerfile = ".cbox.Dockerfile"
 `+"```"+`
 The user creates a Dockerfile that installs what's needed (e.g. node, python, etc.)
-and references it in .cbox.toml. This makes the tools available directly in the container.`)
+and references it in cbox.toml. This makes the tools available directly in the container.`)
 
 	// Extra sections (e.g. task assignment from workflow)
 	for _, e := range extras {

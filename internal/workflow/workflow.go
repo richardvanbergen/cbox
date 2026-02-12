@@ -1,7 +1,9 @@
 package workflow
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -617,6 +619,132 @@ func FlowStatus(projectDir, branch string) error {
 	spinner.Run()
 
 	return nil
+}
+
+// FlowClean removes local resources (worktrees, containers) for flows whose PRs
+// have been merged. It fetches PR status for all active flows, identifies the
+// merged ones, shows the user what will be removed, and prompts for confirmation.
+func FlowClean(projectDir string) error {
+	return flowClean(projectDir, os.Stdin)
+}
+
+func flowClean(projectDir string, confirmReader io.Reader) error {
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+
+	wf := cfg.Workflow
+	if wf == nil || wf.PR == nil || wf.PR.View == "" {
+		return fmt.Errorf("no pr.view command configured — add [workflow.pr] view to %s", config.ConfigFile)
+	}
+
+	states, err := ListFlowStates(projectDir)
+	if err != nil {
+		return err
+	}
+
+	if len(states) == 0 {
+		output.Text("No active flows.")
+		return nil
+	}
+
+	// Fetch PR status concurrently and identify merged flows
+	merged := findMergedFlows(wf, states)
+
+	if len(merged) == 0 {
+		output.Text("No merged flows to clean up.")
+		return nil
+	}
+
+	// Show what will be removed
+	fmt.Println()
+	output.Text("The following merged flows will be cleaned up:")
+	for _, s := range merged {
+		output.Text("  - %s (%s)", s.Branch, s.Title)
+	}
+	fmt.Println()
+
+	// Prompt for confirmation
+	fmt.Print("Remove these flows? [y/N] ")
+	scanner := bufio.NewScanner(confirmReader)
+	if !scanner.Scan() {
+		return nil
+	}
+	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+	if answer != "y" && answer != "yes" {
+		output.Text("Aborted.")
+		return nil
+	}
+
+	// Clean up each merged flow
+	for _, s := range merged {
+		output.Progress("Cleaning up %s", s.Branch)
+		if err := sandbox.Clean(projectDir, s.Branch); err != nil {
+			output.Warning("Sandbox cleanup failed for %s: %v", s.Branch, err)
+		}
+
+		RemoveFlowState(projectDir, s.Branch)
+		repDir := reportDir(projectDir, s.Branch)
+		os.RemoveAll(repDir)
+
+		output.Success("Cleaned up %s", s.Branch)
+	}
+
+	output.Success("Done. Cleaned up %d merged flow(s).", len(merged))
+	return nil
+}
+
+// findMergedFlows fetches PR status for all flows concurrently and returns
+// those whose PRs are in the MERGED state.
+func findMergedFlows(wf *config.WorkflowConfig, states []*FlowState) []*FlowState {
+	type flowResult struct {
+		state  *FlowState
+		merged bool
+	}
+	results := make([]flowResult, len(states))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	spinner := output.NewLineSpinner(len(states))
+	for i, s := range states {
+		results[i] = flowResult{state: s}
+		spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", s.Branch, s.Title))
+
+		if s.PRNumber == "" {
+			spinner.Resolve(i, fmt.Sprintf("%-15s", s.Phase))
+			continue
+		}
+
+		wg.Add(1)
+		go func(idx int, s *FlowState) {
+			defer wg.Done()
+			prStatus, err := fetchPRStatus(wf, s)
+			merged := err == nil && prStatus != nil && strings.ToUpper(prStatus.State) == "MERGED"
+			mu.Lock()
+			results[idx].merged = merged
+			mu.Unlock()
+
+			phase := s.Phase
+			if err == nil && prStatus != nil {
+				phase = formatPRPhase(prStatus)
+			}
+			spinner.Resolve(idx, fmt.Sprintf("%-15s", phase))
+		}(i, s)
+	}
+
+	go func() {
+		wg.Wait()
+	}()
+	spinner.Run()
+
+	var merged []*FlowState
+	for _, r := range results {
+		if r.merged {
+			merged = append(merged, r.state)
+		}
+	}
+	return merged
 }
 
 // formatPRPhase returns a display string for the PR status.

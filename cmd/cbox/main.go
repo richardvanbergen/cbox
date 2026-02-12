@@ -472,6 +472,7 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowInitCmd())
 	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
+	cmd.AddCommand(flowCleanCmd())
 	cmd.AddCommand(flowChatCmd())
 	cmd.AddCommand(flowPRCmd())
 	cmd.AddCommand(flowMergeCmd())
@@ -535,6 +536,17 @@ func flowStatusCmd() *cobra.Command {
 				branch = args[0]
 			}
 			return workflow.FlowStatus(projectDir(), branch)
+		},
+	}
+}
+
+func flowCleanCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "clean",
+		Short: "Remove local resources for merged flows",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowClean(projectDir())
 		},
 	}
 }

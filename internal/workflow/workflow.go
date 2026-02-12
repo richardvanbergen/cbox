@@ -85,12 +85,14 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	title := summarize(description)
 	var issueID string
 	if wf.Issue != nil && wf.Issue.Create != "" {
-		output.Progress("Creating issue")
-		issueID, err = runShellCommand(wf.Issue.Create, map[string]string{
-			"Title":       title,
-			"Description": description,
-		})
-		if err != nil {
+		if err := output.Spin("Creating issue", func() error {
+			var createErr error
+			issueID, createErr = runShellCommand(wf.Issue.Create, map[string]string{
+				"Title":       title,
+				"Description": description,
+			})
+			return createErr
+		}); err != nil {
 			return fmt.Errorf("creating issue: %w", err)
 		}
 		output.Success("Created issue #%s", issueID)
@@ -112,10 +114,11 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 
 	// Start sandbox with report dir
 	repDir := reportDir(projectDir, branch)
-	output.Progress("Starting sandbox")
-	if err := sandbox.UpWithOptions(projectDir, branch, sandbox.UpOptions{
-		ReportDir:  repDir,
-		FlowBranch: branch,
+	if err := output.Spin("Starting sandbox", func() error {
+		return sandbox.UpWithOptions(projectDir, branch, sandbox.UpOptions{
+			ReportDir:  repDir,
+			FlowBranch: branch,
+		})
 	}); err != nil {
 		return fmt.Errorf("starting sandbox: %w", err)
 	}
@@ -135,12 +138,16 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 	}
 
 	if issueID != "" && wf.Issue != nil && wf.Issue.View != "" {
-		output.Progress("Fetching issue content")
-		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
-			"IssueID": issueID,
+		var issueContent string
+		fetchErr := output.Spin("Fetching issue content", func() error {
+			var e error
+			issueContent, e = runShellCommand(wf.Issue.View, map[string]string{
+				"IssueID": issueID,
+			})
+			return e
 		})
-		if err != nil {
-			output.Warning("Could not fetch issue content: %v", err)
+		if fetchErr != nil {
+			output.Warning("Could not fetch issue content: %v", fetchErr)
 		} else {
 			issueInfo, parseErr := parseIssueJSON(issueContent)
 			if parseErr != nil {
@@ -263,12 +270,16 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	}
 
 	if state.IssueID != "" && wf != nil && wf.Issue != nil && wf.Issue.View != "" {
-		output.Progress("Refreshing task from issue")
-		issueContent, err := runShellCommand(wf.Issue.View, map[string]string{
-			"IssueID": state.IssueID,
+		var issueContent string
+		fetchErr := output.Spin("Refreshing task from issue", func() error {
+			var e error
+			issueContent, e = runShellCommand(wf.Issue.View, map[string]string{
+				"IssueID": state.IssueID,
+			})
+			return e
 		})
-		if err != nil {
-			output.Warning("Could not fetch issue content: %v", err)
+		if fetchErr != nil {
+			output.Warning("Could not fetch issue content: %v", fetchErr)
 			tf.Issue = &IssueInfo{ID: state.IssueID}
 		} else {
 			issueInfo, parseErr := parseIssueJSON(issueContent)
@@ -377,19 +388,24 @@ func FlowPR(projectDir, branch string) error {
 	}
 
 	// Push the branch first
-	output.Progress("Pushing branch")
-	if _, err := runShellCommandInDir("git push -u origin $Branch", map[string]string{
-		"Branch": branch,
-	}, wtPath); err != nil {
+	if err := output.Spin("Pushing branch", func() error {
+		_, pushErr := runShellCommandInDir("git push -u origin $Branch", map[string]string{
+			"Branch": branch,
+		}, wtPath)
+		return pushErr
+	}); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
-	output.Progress("Creating PR")
-	prOutput, err := runShellCommandInDir(wf.PR.Create, map[string]string{
-		"Title":       state.Title,
-		"Description": description,
-	}, wtPath)
-	if err != nil {
+	var prOutput string
+	if err := output.Spin("Creating PR", func() error {
+		var prErr error
+		prOutput, prErr = runShellCommandInDir(wf.PR.Create, map[string]string{
+			"Title":       state.Title,
+			"Description": description,
+		}, wtPath)
+		return prErr
+	}); err != nil {
 		return fmt.Errorf("creating PR: %w", err)
 	}
 
@@ -461,10 +477,12 @@ func FlowMerge(projectDir, branch string) error {
 			prNumber = extracted
 		}
 
-		output.Progress("Merging PR")
-		if _, err := runShellCommand(wf.PR.Merge, map[string]string{
-			"PRURL":    state.PRURL,
-			"PRNumber": prNumber,
+		if err := output.Spin("Merging PR", func() error {
+			_, mergeErr := runShellCommand(wf.PR.Merge, map[string]string{
+				"PRURL":    state.PRURL,
+				"PRNumber": prNumber,
+			})
+			return mergeErr
 		}); err != nil {
 			return fmt.Errorf("merging PR: %w", err)
 		}
@@ -488,8 +506,9 @@ func FlowMerge(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	output.Progress("Cleaning up sandbox")
-	if err := sandbox.Clean(projectDir, branch); err != nil {
+	if err := output.Spin("Cleaning up sandbox", func() error {
+		return sandbox.Clean(projectDir, branch)
+	}); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}
 
@@ -679,16 +698,16 @@ func flowClean(projectDir string, confirmReader io.Reader) error {
 
 	// Clean up each merged flow
 	for _, s := range merged {
-		output.Progress("Cleaning up %s", s.Branch)
-		if err := sandbox.Clean(projectDir, s.Branch); err != nil {
-			output.Warning("Sandbox cleanup failed for %s: %v", s.Branch, err)
+		branchName := s.Branch
+		if err := output.Spin(fmt.Sprintf("Cleaning up %s", branchName), func() error {
+			return sandbox.Clean(projectDir, branchName)
+		}); err != nil {
+			output.Warning("Sandbox cleanup failed for %s: %v", branchName, err)
 		}
 
-		RemoveFlowState(projectDir, s.Branch)
-		repDir := reportDir(projectDir, s.Branch)
+		RemoveFlowState(projectDir, branchName)
+		repDir := reportDir(projectDir, branchName)
 		os.RemoveAll(repDir)
-
-		output.Success("Cleaned up %s", s.Branch)
 	}
 
 	output.Success("Done. Cleaned up %d merged flow(s).", len(merged))
@@ -846,8 +865,9 @@ func FlowAbandon(projectDir, branch string) error {
 	}
 
 	// Clean up sandbox
-	output.Progress("Cleaning up sandbox")
-	if err := sandbox.Clean(projectDir, branch); err != nil {
+	if err := output.Spin("Cleaning up sandbox", func() error {
+		return sandbox.Clean(projectDir, branch)
+	}); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}
 

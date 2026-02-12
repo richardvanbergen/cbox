@@ -49,8 +49,8 @@ func TestRenderProgressBlock(t *testing.T) {
 	var buf bytes.Buffer
 	RenderBlock(&buf, ProgressBlock{Message: "creating sandbox"})
 	got := buf.String()
-	if !strings.Contains(got, "...") {
-		t.Errorf("ProgressBlock: expected '...' prefix, got %q", got)
+	if !strings.Contains(got, "›") {
+		t.Errorf("ProgressBlock: expected '›' prefix, got %q", got)
 	}
 	if !strings.Contains(got, "creating sandbox") {
 		t.Errorf("ProgressBlock: expected message, got %q", got)
@@ -173,7 +173,7 @@ func TestConvenienceFunctions(t *testing.T) {
 		prefix string
 		msg    string
 	}{
-		{"Progress", func() { Progress("step %d", 1) }, "...", "step 1"},
+		{"Progress", func() { Progress("step %d", 1) }, "›", "step 1"},
 		{"Success", func() { Success("done %s", "ok") }, "✓", "done ok"},
 		{"Warning", func() { Warning("low %s", "disk") }, "!", "low disk"},
 		{"Error", func() { Error("fail %d", 42) }, "✗", "fail 42"},
@@ -202,5 +202,67 @@ func TestConvenienceFunctions(t *testing.T) {
 				t.Errorf("expected message %q in output %q", tt.msg, got)
 			}
 		})
+	}
+}
+
+func TestCommandWriter(t *testing.T) {
+	var buf bytes.Buffer
+	cw := NewCommandWriter(&buf)
+	cw.Write([]byte("line one\nline two\n"))
+	cw.Close()
+	got := buf.String()
+
+	if !strings.Contains(got, "│") {
+		t.Errorf("expected '│' border in output, got %q", got)
+	}
+	if !strings.Contains(got, "line one") {
+		t.Errorf("expected 'line one' in output, got %q", got)
+	}
+	if !strings.Contains(got, "line two") {
+		t.Errorf("expected 'line two' in output, got %q", got)
+	}
+
+	// Verify each content line is prefixed with the border
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	// First line is blank (visual separator), remaining lines have content
+	contentLines := 0
+	for _, line := range lines {
+		if strings.Contains(line, "│") {
+			contentLines++
+		}
+	}
+	if contentLines != 2 {
+		t.Errorf("expected 2 bordered lines, got %d in %q", contentLines, got)
+	}
+}
+
+func TestCommandWriterPartialLines(t *testing.T) {
+	var buf bytes.Buffer
+	cw := NewCommandWriter(&buf)
+	cw.Write([]byte("partial"))
+	cw.Write([]byte(" line\ncomplete\n"))
+	cw.Close()
+	got := buf.String()
+
+	if !strings.Contains(got, "partial line") {
+		t.Errorf("expected buffered 'partial line' in output, got %q", got)
+	}
+	if !strings.Contains(got, "complete") {
+		t.Errorf("expected 'complete' in output, got %q", got)
+	}
+}
+
+func TestCommandWriterFlushOnClose(t *testing.T) {
+	var buf bytes.Buffer
+	cw := NewCommandWriter(&buf)
+	cw.Write([]byte("no newline"))
+	cw.Close()
+	got := buf.String()
+
+	if !strings.Contains(got, "│") {
+		t.Errorf("expected '│' border in output, got %q", got)
+	}
+	if !strings.Contains(got, "no newline") {
+		t.Errorf("expected 'no newline' in output, got %q", got)
 	}
 }

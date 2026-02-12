@@ -39,7 +39,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	projectName := filepath.Base(projectDir)
 
 	// 1. Create or reuse worktree
-	output.Progress("Preparing worktree for branch '%s'...", branch)
+	output.Progress("Preparing worktree for branch '%s'", branch)
 	wtPath, err := worktree.Create(projectDir, branch)
 	if err != nil {
 		return fmt.Errorf("creating worktree: %w", err)
@@ -48,7 +48,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 
 	// Copy configured files into the new worktree
 	if len(cfg.CopyFiles) > 0 {
-		fmt.Println("Copying files to worktree...")
+		output.Progress("Copying files to worktree")
 		if err := worktree.CopyFiles(projectDir, wtPath, cfg.CopyFiles); err != nil {
 			return fmt.Errorf("copying files to worktree: %w", err)
 		}
@@ -56,7 +56,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 
 	// 2. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
-	output.Progress("Building Claude image %s...", claudeImage)
+	output.Progress("Building Claude image %s", claudeImage)
 	buildOpts := docker.BuildOptions{NoCache: opts.Rebuild}
 	if cfg.Dockerfile != "" {
 		buildOpts.ProjectDockerfile = filepath.Join(projectDir, cfg.Dockerfile)
@@ -67,7 +67,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 
 	// 3. Create Docker network
 	networkName := docker.NetworkName(projectName, branch)
-	output.Progress("Creating network %s...", networkName)
+	output.Progress("Creating network %s", networkName)
 	if err := docker.CreateNetwork(networkName); err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
@@ -89,7 +89,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		currentUser := os.Getenv("USER")
 		chromeBridgePath := "/tmp/claude-mcp-browser-bridge-" + currentUser
 		if _, err := os.Stat(chromeBridgePath); err == nil {
-			output.Progress("Starting Chrome bridge proxy...")
+			output.Progress("Starting Chrome bridge proxy")
 			bridgePID, bridgeMappings, err = startBridgeProxy(chromeBridgePath)
 			if err != nil {
 				output.Warning("Chrome bridge proxy failed: %v", err)
@@ -104,7 +104,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	// 7. Start MCP proxy if host_commands or commands are configured
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
-		output.Progress("Starting MCP host command server...")
+		output.Progress("Starting MCP host command server")
 		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
 		if err != nil {
 			output.Warning("MCP host command server failed: %v", err)
@@ -114,20 +114,20 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	}
 
 	// 8. Start Claude container
-	output.Progress("Starting Claude container %s...", claudeContainerName)
+	output.Progress("Starting Claude container %s", claudeContainerName)
 	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, cfg.Env, envFile, bridgeMappings); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
 	// 9. Inject system CLAUDE.md into Claude container
-	output.Progress("Injecting system CLAUDE.md...")
+	output.Progress("Injecting system CLAUDE.md")
 	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands, cfg.Commands); err != nil {
 		output.Warning("Could not inject CLAUDE.md: %v", err)
 	}
 
 	// 10. Inject MCP config into Claude container if MCP proxy is running
 	if mcpPort > 0 {
-		output.Progress("Injecting MCP config into Claude container...")
+		output.Progress("Injecting MCP config into Claude container")
 		if err := docker.InjectMCPConfig(claudeContainerName, mcpPort); err != nil {
 			output.Warning("Could not inject MCP config: %v", err)
 		}
@@ -164,22 +164,22 @@ func Down(projectDir, branch string) error {
 
 	// Stop bridge proxy if running
 	if state.BridgeProxyPID > 0 {
-		output.Progress("Stopping Chrome bridge proxy...")
+		output.Progress("Stopping Chrome bridge proxy")
 		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
 	// Stop MCP proxy if running
 	if state.MCPProxyPID > 0 {
-		output.Progress("Stopping MCP host command server...")
+		output.Progress("Stopping MCP host command server")
 		stopProcess(state.MCPProxyPID)
 	}
 
-	output.Progress("Stopping container %s...", state.ClaudeContainer)
+	output.Progress("Stopping container %s", state.ClaudeContainer)
 	if err := docker.StopAndRemove(state.ClaudeContainer); err != nil {
 		output.Warning("Could not remove container: %v", err)
 	}
 
-	output.Progress("Removing network %s...", state.NetworkName)
+	output.Progress("Removing network %s", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
 
 	// Mark as not running but preserve state so `clean` can still find the worktree
@@ -251,13 +251,13 @@ func Clean(projectDir, branch string) error {
 
 	// Stop bridge proxy if running
 	if state.BridgeProxyPID > 0 {
-		output.Progress("Stopping Chrome bridge proxy...")
+		output.Progress("Stopping Chrome bridge proxy")
 		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
 	// Stop MCP proxy if running
 	if state.MCPProxyPID > 0 {
-		output.Progress("Stopping MCP host command server...")
+		output.Progress("Stopping MCP host command server")
 		stopProcess(state.MCPProxyPID)
 	}
 
@@ -265,17 +265,17 @@ func Clean(projectDir, branch string) error {
 	// the state file can be stale (e.g. after a crash or if Down was called
 	// but the container was restarted). StopAndRemove is safe to call even
 	// when the container is already gone.
-	output.Progress("Stopping container %s...", state.ClaudeContainer)
+	output.Progress("Stopping container %s", state.ClaudeContainer)
 	if err := docker.StopAndRemove(state.ClaudeContainer); err != nil {
 		output.Warning("Could not remove container: %v", err)
 	}
 
 	// Remove network (safe to call even if already removed)
-	output.Progress("Removing network %s...", state.NetworkName)
+	output.Progress("Removing network %s", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
 
 	// Remove worktree
-	output.Progress("Removing worktree at %s...", state.WorktreePath)
+	output.Progress("Removing worktree at %s", state.WorktreePath)
 	if err := worktree.Remove(state.ProjectDir, state.WorktreePath); err != nil {
 		output.Warning("Could not remove worktree: %v", err)
 	}

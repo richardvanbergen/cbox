@@ -75,7 +75,7 @@ func DefaultWorkflowConfig() *WorkflowConfig {
 		PR: &WorkflowPRConfig{
 			Create: `gh pr create --title "$Title" --body "$Description"`,
 			Merge:  `gh pr merge "$PRNumber" --merge`,
-			View:   `gh pr view "$PRNumber" --json number,state,title,url,mergedAt`,
+			View:   `gh pr view "$PRNumber" --json number,state,title,url,mergedAt,closedAt`,
 		},
 	}
 }

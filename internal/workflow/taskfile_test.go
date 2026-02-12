@@ -114,6 +114,58 @@ func TestParsePRJSON_Open(t *testing.T) {
 	}
 }
 
+func TestParsePRJSON_Closed(t *testing.T) {
+	input := `{
+		"number": 15,
+		"state": "CLOSED",
+		"title": "Abandoned feature",
+		"url": "https://github.com/owner/repo/pull/15",
+		"mergedAt": "",
+		"closedAt": "2025-02-10T14:00:00Z"
+	}`
+
+	status, err := parsePRJSON(input)
+	if err != nil {
+		t.Fatalf("parsePRJSON failed: %v", err)
+	}
+
+	if status.State != "CLOSED" {
+		t.Errorf("State = %q, want %q", status.State, "CLOSED")
+	}
+	if status.MergedAt != "" {
+		t.Errorf("MergedAt = %q, want empty", status.MergedAt)
+	}
+	if status.ClosedAt != "2025-02-10T14:00:00Z" {
+		t.Errorf("ClosedAt = %q, want %q", status.ClosedAt, "2025-02-10T14:00:00Z")
+	}
+}
+
+func TestParsePRJSON_MergedWithClosedAt(t *testing.T) {
+	input := `{
+		"number": 42,
+		"state": "MERGED",
+		"title": "Add feature X",
+		"url": "https://github.com/owner/repo/pull/42",
+		"mergedAt": "2025-01-15T10:30:00Z",
+		"closedAt": "2025-01-15T10:30:00Z"
+	}`
+
+	status, err := parsePRJSON(input)
+	if err != nil {
+		t.Fatalf("parsePRJSON failed: %v", err)
+	}
+
+	if status.State != "MERGED" {
+		t.Errorf("State = %q, want %q", status.State, "MERGED")
+	}
+	if status.MergedAt != "2025-01-15T10:30:00Z" {
+		t.Errorf("MergedAt = %q, want %q", status.MergedAt, "2025-01-15T10:30:00Z")
+	}
+	if status.ClosedAt != "2025-01-15T10:30:00Z" {
+		t.Errorf("ClosedAt = %q, want %q", status.ClosedAt, "2025-01-15T10:30:00Z")
+	}
+}
+
 func TestParsePRJSON_InvalidJSON(t *testing.T) {
 	_, err := parsePRJSON("not json")
 	if err == nil {

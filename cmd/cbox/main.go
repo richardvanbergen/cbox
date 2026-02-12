@@ -59,23 +59,27 @@ func projectDir() string {
 	return dir
 }
 
-// branchCompletion returns a completion function that suggests git branches.
-func branchCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+// sandboxCompletion returns a completion function that suggests existing cbox sandboxes.
+func sandboxCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		out, err := exec.Command("git", "branch", "--format=%(refname:short)").Output()
+		dir, err := os.Getwd()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		branches := strings.Split(strings.TrimSpace(string(out)), "\n")
+		states, err := sandbox.ListStates(dir)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
 		var completions []string
-		for _, b := range branches {
-			if b != "" && strings.HasPrefix(b, toComplete) {
-				completions = append(completions, b)
+		for _, s := range states {
+			if s.Branch != "" && strings.HasPrefix(s.Branch, toComplete) {
+				completions = append(completions, s.Branch)
 			}
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
@@ -136,10 +140,9 @@ func upCmd() *cobra.Command {
 	var rebuild bool
 
 	cmd := &cobra.Command{
-		Use:               "up <branch>",
-		Short:             "Create worktree and start sandboxed Claude container",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		Use:   "up <branch>",
+		Short: "Create worktree and start sandboxed Claude container",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Up(projectDir(), args[0], rebuild)
 		},
@@ -154,7 +157,7 @@ func downCmd() *cobra.Command {
 		Use:               "down <branch>",
 		Short:             "Stop the sandboxed container (keeps worktree)",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Down(projectDir(), args[0])
 		},
@@ -199,7 +202,7 @@ func openCmd() *cobra.Command {
 		Use:               "open <branch>",
 		Short:             "Run the open command for a sandbox (without starting a chat)",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 			branch := args[0]
@@ -231,7 +234,7 @@ func chatCmd() *cobra.Command {
 		Use:               "chat <branch>",
 		Short:             "Start Claude Code in the sandbox (interactive or one-shot with -p)",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
 			branch := args[0]
@@ -263,7 +266,7 @@ func shellCmd() *cobra.Command {
 		Use:               "shell <branch>",
 		Short:             "Open a shell in the Claude container (for debugging)",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Shell(projectDir(), args[0])
 		},
@@ -305,7 +308,7 @@ func infoCmd() *cobra.Command {
 		Use:               "info <branch>",
 		Short:             "Show current sandbox status",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Info(projectDir(), args[0])
 		},
@@ -317,7 +320,7 @@ func cleanCmd() *cobra.Command {
 		Use:               "clean <branch>",
 		Short:             "Stop container, remove worktree and branch",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Clean(projectDir(), args[0])
 		},
@@ -558,7 +561,7 @@ func flowChatCmd() *cobra.Command {
 		Use:               "chat <branch>",
 		Short:             "Refresh task context and open interactive chat",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			openFlag := cmd.Flags().Changed("open")
 			return workflow.FlowChat(projectDir(), args[0], openFlag, openCmd)
@@ -575,7 +578,7 @@ func flowPRCmd() *cobra.Command {
 		Use:               "pr <branch>",
 		Short:             "Create a pull request for the flow",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowPR(projectDir(), args[0])
 		},
@@ -587,7 +590,7 @@ func flowMergeCmd() *cobra.Command {
 		Use:               "merge <branch>",
 		Short:             "Merge the PR and clean up",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowMerge(projectDir(), args[0])
 		},
@@ -599,7 +602,7 @@ func flowAbandonCmd() *cobra.Command {
 		Use:               "abandon <branch>",
 		Short:             "Cancel the flow and clean up",
 		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: branchCompletion(),
+		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowAbandon(projectDir(), args[0])
 		},

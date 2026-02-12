@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -100,5 +101,47 @@ func TestLineSpinner_PartialResolve(t *testing.T) {
 	}
 	if !strings.Contains(out, "c ok") {
 		t.Errorf("expected line c resolved, got: %s", out)
+	}
+}
+
+func TestSpin_Success(t *testing.T) {
+	var buf bytes.Buffer
+	err := spinTo(&buf, "Doing work", func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Doing work") {
+		t.Errorf("expected message in output, got: %s", out)
+	}
+	// On success the final line should contain the success marker
+	if !strings.Contains(out, "✓") {
+		t.Errorf("expected success marker (✓) in output, got: %s", out)
+	}
+}
+
+func TestSpin_Error(t *testing.T) {
+	var buf bytes.Buffer
+	testErr := errors.New("something broke")
+	err := spinTo(&buf, "Failing task", func() error {
+		return testErr
+	})
+	if !errors.Is(err, testErr) {
+		t.Fatalf("expected testErr, got: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Failing task") {
+		t.Errorf("expected message in output, got: %s", out)
+	}
+	// On error the final line should contain the progress marker, not success
+	if !strings.Contains(out, "›") {
+		t.Errorf("expected progress marker (›) in output, got: %s", out)
+	}
+	if strings.Contains(out, "✓") {
+		t.Errorf("should not contain success marker on error, got: %s", out)
 	}
 }

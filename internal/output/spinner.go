@@ -98,6 +98,51 @@ func (s *LineSpinner) Run() {
 	}
 }
 
+// Spin displays a spinner animation alongside msg while fn executes.
+// On success the spinner line is replaced with "✓ <msg>".
+// On error it is replaced with "› <msg>" so subsequent error output
+// reads naturally.
+//
+// Example:
+//
+//	err := output.Spin("Starting sandbox", func() error {
+//	    return sandbox.Up(...)
+//	})
+func Spin(msg string, fn func() error) error {
+	return spinTo(os.Stdout, msg, fn)
+}
+
+// spinTo is the testable core of Spin, accepting an explicit writer.
+func spinTo(w io.Writer, msg string, fn func() error) error {
+	ch := make(chan error, 1)
+	go func() {
+		ch <- fn()
+	}()
+
+	frame := 0
+	fmt.Fprintf(w, "%s %s", progressPrefix.Render(spinnerFrames[frame]), msg)
+
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-ch:
+			fmt.Fprintf(w, "\r\033[2K")
+			if err != nil {
+				fmt.Fprintf(w, "%s %s\n", progressPrefix.Render("›"), msg)
+			} else {
+				fmt.Fprintf(w, "%s %s\n", successPrefix.Render("✓"), msg)
+			}
+			return err
+		case <-ticker.C:
+			frame++
+			char := spinnerFrames[frame%len(spinnerFrames)]
+			fmt.Fprintf(w, "\r\033[2K%s %s", progressPrefix.Render(char), msg)
+		}
+	}
+}
+
 // redraw moves the cursor up and reprints all lines.
 func (s *LineSpinner) redraw() {
 	s.mu.Lock()

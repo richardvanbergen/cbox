@@ -2,6 +2,8 @@ package worktree
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,4 +90,78 @@ func DeleteBranch(projectDir, branch string) error {
 		return fmt.Errorf("git branch -D: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+// CopyFiles copies a list of files or directories from projectDir to wtPath.
+// Each pattern is relative to projectDir. Missing source files are silently
+// skipped so that optional entries like ".env" don't cause errors.
+func CopyFiles(projectDir, wtPath string, patterns []string) error {
+	for _, pattern := range patterns {
+		src := filepath.Join(projectDir, pattern)
+		dst := filepath.Join(wtPath, pattern)
+
+		info, err := os.Stat(src)
+		if err != nil {
+			// Source doesn't exist — skip silently.
+			continue
+		}
+
+		if info.IsDir() {
+			if err := copyDir(src, dst); err != nil {
+				return fmt.Errorf("copying directory %s: %w", pattern, err)
+			}
+		} else {
+			if err := copyFile(src, dst); err != nil {
+				return fmt.Errorf("copying file %s: %w", pattern, err)
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file from src to dst, preserving permissions.
+func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// copyDir recursively copies a directory tree from src to dst.
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		return copyFile(path, target)
+	})
 }

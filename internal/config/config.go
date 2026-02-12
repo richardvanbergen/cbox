@@ -17,6 +17,7 @@ type Config struct {
 	EnvFile      string            `toml:"env_file,omitempty"`
 	Browser      bool              `toml:"browser,omitempty"`
 	HostCommands []string          `toml:"host_commands,omitempty"`
+	CopyFiles    []string          `toml:"copy_files,omitempty"`
 	Dockerfile   string            `toml:"dockerfile,omitempty"`
 	Open         string            `toml:"open,omitempty"`
 	Editor       string            `toml:"editor,omitempty"`
@@ -56,6 +57,7 @@ func DefaultConfig() *Config {
 		},
 		Env:          []string{"ANTHROPIC_API_KEY"},
 		HostCommands: []string{"git", "gh"},
+		CopyFiles:    []string{".env"},
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/richvanbergen/cbox/internal/config"
@@ -557,17 +558,64 @@ func FlowStatus(projectDir, branch string) error {
 		return nil
 	}
 
-	for _, s := range states {
-		phase := s.Phase
-		prStatus, err := fetchPRStatus(wf, s)
-		if err != nil {
-			return err
-		}
-		if prStatus != nil {
-			phase = formatPRPhase(prStatus)
-		}
-		output.Text("%-30s %-15s %s", s.Branch, phase, s.Title)
+	// Determine which flows need a PR status fetch
+	type flowLine struct {
+		state    *FlowState
+		needsPR  bool
 	}
+	flowLines := make([]flowLine, len(states))
+	anyNeedsPR := false
+	for i, s := range states {
+		needsPR := s.PRNumber != ""
+		flowLines[i] = flowLine{state: s, needsPR: needsPR}
+		if needsPR {
+			anyNeedsPR = true
+		}
+	}
+
+	// If no flows need PR status, just print them directly
+	if !anyNeedsPR {
+		for _, fl := range flowLines {
+			output.Text("%-30s %-15s %s", fl.state.Branch, fl.state.Phase, fl.state.Title)
+		}
+		return nil
+	}
+
+	// Show all flows with spinners, fetch PR status concurrently
+	spinner := output.NewLineSpinner(len(flowLines))
+	for i, fl := range flowLines {
+		if fl.needsPR {
+			spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", fl.state.Branch, fl.state.Title))
+		} else {
+			spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", fl.state.Branch, fl.state.Title))
+			spinner.Resolve(i, fmt.Sprintf("%-15s", fl.state.Phase))
+		}
+	}
+
+	// Fetch PR statuses concurrently
+	var wg sync.WaitGroup
+	for i, fl := range flowLines {
+		if !fl.needsPR {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, s *FlowState) {
+			defer wg.Done()
+			phase := s.Phase
+			prStatus, err := fetchPRStatus(wf, s)
+			if err == nil && prStatus != nil {
+				phase = formatPRPhase(prStatus)
+			}
+			spinner.Resolve(idx, fmt.Sprintf("%-15s", phase))
+		}(i, fl.state)
+	}
+
+	// Run spinner in a goroutine, wait for all fetches, then wait for spinner
+	go func() {
+		wg.Wait()
+	}()
+	spinner.Run()
+
 	return nil
 }
 
@@ -591,11 +639,23 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	if s.Description != "" {
 		output.Text("Description: %s", s.Description)
 	}
-	phase := s.Phase
-	if prStatus, _ := fetchPRStatus(wf, s); prStatus != nil {
-		phase = formatPRPhase(prStatus)
+
+	// Use a spinner if we need to fetch PR status
+	if s.PRNumber != "" {
+		spinner := output.NewLineSpinner(1)
+		spinner.SetLine(0, "Phase:       %s")
+		go func() {
+			phase := s.Phase
+			if prStatus, err := fetchPRStatus(wf, s); err == nil && prStatus != nil {
+				phase = formatPRPhase(prStatus)
+			}
+			spinner.Resolve(0, phase)
+		}()
+		spinner.Run()
+	} else {
+		output.Text("Phase:       %s", s.Phase)
 	}
-	output.Text("Phase:       %s", phase)
+
 	if s.IssueID != "" {
 		output.Text("Issue:       #%s", s.IssueID)
 	}

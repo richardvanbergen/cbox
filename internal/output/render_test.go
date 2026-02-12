@@ -234,6 +234,14 @@ func TestCommandWriter(t *testing.T) {
 	if contentLines != 2 {
 		t.Errorf("expected 2 bordered lines, got %d in %q", contentLines, got)
 	}
+
+	// Verify blank line before and after output for visual separation
+	if !strings.HasPrefix(got, "\n") {
+		t.Errorf("expected leading blank line, got %q", got)
+	}
+	if !strings.HasSuffix(got, "\n\n") {
+		t.Errorf("expected trailing blank line, got %q", got)
+	}
 }
 
 func TestCommandWriterPartialLines(t *testing.T) {
@@ -264,6 +272,17 @@ func TestCommandWriterFlushOnClose(t *testing.T) {
 	}
 	if !strings.Contains(got, "no newline") {
 		t.Errorf("expected 'no newline' in output, got %q", got)
+	}
+}
+
+func TestCommandWriterCloseWithoutWrite(t *testing.T) {
+	var buf bytes.Buffer
+	cw := NewCommandWriter(&buf)
+	cw.Close()
+	got := buf.String()
+
+	if got != "" {
+		t.Errorf("expected no output when Close is called without Write, got %q", got)
 	}
 }
 

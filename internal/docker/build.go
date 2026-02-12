@@ -65,7 +65,9 @@ func BuildClaudeImage(imageName string, opts BuildOptions) error {
 	cmd := exec.Command("docker", buildArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	fmt.Fprintln(os.Stdout)
 	err = cmd.Run()
+	fmt.Fprintln(os.Stdout)
 	if err != nil {
 		return fmt.Errorf("building claude image: %w", err)
 	}

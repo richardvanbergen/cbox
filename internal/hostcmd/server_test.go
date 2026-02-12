@@ -58,7 +58,7 @@ func initSession(t *testing.T, url string) {
 
 func startTestServer(t *testing.T, worktree string, commands []string) (string, *Server) {
 	t.Helper()
-	srv := NewServer(worktree, commands, nil)
+	srv := NewServer(worktree, commands, nil, 0)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("start server: %v", err)
@@ -76,7 +76,7 @@ func startTestServer(t *testing.T, worktree string, commands []string) (string, 
 
 func startTestServerWithNamedCommands(t *testing.T, worktree string, commands []string, namedCommands map[string]string) (string, *Server) {
 	t.Helper()
-	srv := NewServer(worktree, commands, namedCommands)
+	srv := NewServer(worktree, commands, namedCommands, 0)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("start server: %v", err)
@@ -146,7 +146,7 @@ func TestNonWhitelistedCommandRejected(t *testing.T) {
 }
 
 func TestPathTranslation(t *testing.T) {
-	srv := NewServer("/host/project", []string{"echo"}, nil)
+	srv := NewServer("/host/project", []string{"echo"}, nil, 0)
 
 	tests := []struct {
 		input    string
@@ -234,6 +234,28 @@ func TestNamedCommandFailure(t *testing.T) {
 	content := extractTextContent(t, result)
 	if !bytes.Contains([]byte(content), []byte("exit_code: 1")) {
 		t.Errorf("expected exit_code: 1, got: %s", content)
+	}
+}
+
+func TestNewServerDefaultTimeout(t *testing.T) {
+	srv := NewServer("/tmp", []string{"echo"}, nil, 0)
+	if srv.commandTimeout != defaultCommandTimeout {
+		t.Errorf("timeout = %v, want %v", srv.commandTimeout, defaultCommandTimeout)
+	}
+}
+
+func TestNewServerCustomTimeout(t *testing.T) {
+	srv := NewServer("/tmp", []string{"echo"}, nil, 300)
+	want := 300 * time.Second
+	if srv.commandTimeout != want {
+		t.Errorf("timeout = %v, want %v", srv.commandTimeout, want)
+	}
+}
+
+func TestNewServerNegativeTimeoutUsesDefault(t *testing.T) {
+	srv := NewServer("/tmp", []string{"echo"}, nil, -1)
+	if srv.commandTimeout != defaultCommandTimeout {
+		t.Errorf("timeout = %v, want %v (default)", srv.commandTimeout, defaultCommandTimeout)
 	}
 }
 

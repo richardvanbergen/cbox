@@ -12,7 +12,12 @@ import (
 
 const StateDir = ".cbox"
 
+// StateVersion is the current schema version for sandbox state files.
+// Bump this when the State struct changes in a backward-incompatible way.
+const StateVersion = 1
+
 type State struct {
+	Version         int                   `json:"version"`
 	ClaudeContainer string                `json:"claude_container"`
 	NetworkName     string                `json:"network_name"`
 	WorktreePath    string                `json:"worktree_path"`
@@ -50,6 +55,8 @@ func SaveState(projectDir, branch string, s *State) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
+
+	s.Version = StateVersion
 
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

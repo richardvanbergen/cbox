@@ -22,6 +22,7 @@ type Config struct {
 	Dockerfile   string            `toml:"dockerfile,omitempty"`
 	Open         string            `toml:"open,omitempty"`
 	Editor       string            `toml:"editor,omitempty"`
+	Timeout      int               `toml:"timeout,omitempty"` // Command timeout in seconds (default 120)
 	Workflow     *WorkflowConfig   `toml:"workflow,omitempty"`
 }
 

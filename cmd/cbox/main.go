@@ -682,6 +682,7 @@ func mcpProxyCmd() *cobra.Command {
 	var reportDir string
 	var flowProjectDir string
 	var flowBranch string
+	var timeoutSeconds int
 
 	cmd := &cobra.Command{
 		Use:    "_mcp-proxy [host-commands...]",
@@ -701,7 +702,7 @@ func mcpProxyCmd() *cobra.Command {
 					Branch:     flowBranch,
 				}
 			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, flow)
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, flow, timeoutSeconds)
 		},
 	}
 
@@ -711,6 +712,7 @@ func mcpProxyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
 	cmd.Flags().StringVar(&flowProjectDir, "flow-project-dir", "", "Project dir for flow commands")
 	cmd.Flags().StringVar(&flowBranch, "flow-branch", "", "Branch name for flow commands")
+	cmd.Flags().IntVar(&timeoutSeconds, "timeout", 0, "Command timeout in seconds (default 120)")
 	return cmd
 }
 

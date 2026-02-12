@@ -105,7 +105,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		output.Progress("Starting MCP host command server")
-		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
+		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch, cfg.Timeout)
 		if err != nil {
 			output.Warning("MCP host command server failed: %v", err)
 		} else {
@@ -348,7 +348,8 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(projectDir, worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string) (int, int, error) {
+// timeoutSeconds sets the per-command timeout; 0 uses the default.
+func startMCPProxy(projectDir, worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string, timeoutSeconds int) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
@@ -373,6 +374,11 @@ func startMCPProxy(projectDir, worktreePath string, hostCommands []string, named
 	// Pass flow context if set
 	if flowBranch != "" {
 		args = append(args, "--flow-project-dir", projectDir, "--flow-branch", flowBranch)
+	}
+
+	// Pass timeout if configured
+	if timeoutSeconds > 0 {
+		args = append(args, "--timeout", fmt.Sprintf("%d", timeoutSeconds))
 	}
 
 	// Host commands are passed as positional args

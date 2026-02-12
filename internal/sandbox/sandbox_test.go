@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,5 +88,104 @@ func TestCleanWithRunningState(t *testing.T) {
 	statePath := filepath.Join(dir, StateDir, branch+".state.json")
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file still exists after Clean: %s", statePath)
+	}
+}
+
+// TestSaveStateSetsVersion verifies that SaveState sets the version field.
+func TestSaveStateSetsVersion(t *testing.T) {
+	dir := t.TempDir()
+	branch := "test-version"
+
+	state := &State{
+		ClaudeContainer: "test-container",
+		Branch:          branch,
+		ProjectDir:      dir,
+	}
+
+	if err := SaveState(dir, branch, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	if state.Version != StateVersion {
+		t.Errorf("state.Version = %d, want %d", state.Version, StateVersion)
+	}
+
+	loaded, err := LoadState(dir, branch)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+
+	if loaded.Version != StateVersion {
+		t.Errorf("loaded.Version = %d, want %d", loaded.Version, StateVersion)
+	}
+}
+
+// TestLoadStateLegacyNoVersion verifies that state files without a version
+// field (written before versioning was added) can still be loaded.
+func TestLoadStateLegacyNoVersion(t *testing.T) {
+	dir := t.TempDir()
+	branch := "legacy"
+
+	// Write a state file without the version field, simulating an old file.
+	stateJSON := `{
+  "claude_container": "old-container",
+  "network_name": "old-net",
+  "worktree_path": "/tmp/wt",
+  "branch": "legacy",
+  "claude_image": "img",
+  "project_dir": "/proj",
+  "running": true
+}`
+	stateDir := filepath.Join(dir, StateDir)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(stateDir, branch+".state.json")
+	if err := os.WriteFile(path, []byte(stateJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadState(dir, branch)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+
+	// Version should be 0 (zero value) for legacy files
+	if loaded.Version != 0 {
+		t.Errorf("loaded.Version = %d, want 0 for legacy file", loaded.Version)
+	}
+	if loaded.ClaudeContainer != "old-container" {
+		t.Errorf("loaded.ClaudeContainer = %q, want %q", loaded.ClaudeContainer, "old-container")
+	}
+}
+
+// TestSaveStateVersionInJSON verifies the version field appears in serialized JSON.
+func TestSaveStateVersionInJSON(t *testing.T) {
+	dir := t.TempDir()
+	branch := "json-check"
+
+	state := &State{
+		ClaudeContainer: "c",
+		Branch:          branch,
+		ProjectDir:      dir,
+	}
+
+	if err := SaveState(dir, branch, state); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, StateDir, branch+".state.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := raw["version"]; !ok {
+		t.Error("expected 'version' key in serialized state JSON")
 	}
 }

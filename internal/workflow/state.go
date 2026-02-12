@@ -11,7 +11,12 @@ import (
 
 const stateDir = ".cbox"
 
+// FlowStateVersion is the current schema version for flow state files.
+// Bump this when the FlowState struct changes in a backward-incompatible way.
+const FlowStateVersion = 1
+
 type FlowState struct {
+	Version     int       `json:"version"`
 	Branch      string    `json:"branch"`
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
@@ -50,6 +55,7 @@ func SaveFlowState(projectDir string, s *FlowState) error {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
 
+	s.Version = FlowStateVersion
 	s.UpdatedAt = time.Now()
 
 	data, err := json.MarshalIndent(s, "", "  ")

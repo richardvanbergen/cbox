@@ -14,8 +14,9 @@ type proxyOutput struct {
 }
 
 // RunProxyCommand starts the MCP server, prints the port as JSON, and blocks until signaled.
-func RunProxyCommand(worktreePath string, commands []string, namedCommands map[string]string, reportDir string, flow *FlowConfig) error {
-	srv := NewServer(worktreePath, commands, namedCommands)
+// timeoutSeconds sets the per-command timeout; 0 uses the default (120s).
+func RunProxyCommand(worktreePath string, commands []string, namedCommands map[string]string, reportDir string, flow *FlowConfig, timeoutSeconds int) error {
+	srv := NewServer(worktreePath, commands, namedCommands, timeoutSeconds)
 	if reportDir != "" {
 		srv.SetReportDir(reportDir)
 	}

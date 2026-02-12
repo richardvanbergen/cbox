@@ -17,7 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const commandTimeout = 120 * time.Second
+const defaultCommandTimeout = 120 * time.Second
 
 // Report represents a single report from the inner Claude.
 type Report struct {
@@ -36,25 +36,32 @@ type FlowConfig struct {
 // Server is an MCP server that exposes a run_command tool for whitelisted commands
 // and dedicated tools for named project commands.
 type Server struct {
-	worktreePath  string
-	allowedCmds   map[string]bool
-	namedCommands map[string]string
-	reportDir     string
-	flow          *FlowConfig
-	listener      net.Listener
-	httpServer    *http.Server
+	worktreePath   string
+	allowedCmds    map[string]bool
+	namedCommands  map[string]string
+	commandTimeout time.Duration
+	reportDir      string
+	flow           *FlowConfig
+	listener       net.Listener
+	httpServer     *http.Server
 }
 
 // NewServer creates a new MCP host command server.
-func NewServer(worktreePath string, commands []string, namedCommands map[string]string) *Server {
+// timeoutSeconds sets the per-command timeout; 0 uses the default (120s).
+func NewServer(worktreePath string, commands []string, namedCommands map[string]string, timeoutSeconds int) *Server {
 	allowed := make(map[string]bool, len(commands))
 	for _, c := range commands {
 		allowed[c] = true
 	}
+	timeout := defaultCommandTimeout
+	if timeoutSeconds > 0 {
+		timeout = time.Duration(timeoutSeconds) * time.Second
+	}
 	return &Server{
-		worktreePath:  worktreePath,
-		allowedCmds:   allowed,
-		namedCommands: namedCommands,
+		worktreePath:   worktreePath,
+		allowedCmds:    allowed,
+		namedCommands:  namedCommands,
+		commandTimeout: timeout,
 	}
 }
 
@@ -184,7 +191,7 @@ func (s *Server) handleRunCommand(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError("working directory must be within the workspace"), nil
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, s.commandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, command, args...)
@@ -197,7 +204,7 @@ func (s *Server) handleRunCommand(ctx context.Context, request mcp.CallToolReque
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if execCtx.Err() == context.DeadlineExceeded {
-			return mcp.NewToolResultError("command timed out after 120 seconds"), nil
+			return mcp.NewToolResultError(fmt.Sprintf("command timed out after %d seconds", int(s.commandTimeout.Seconds()))), nil
 		} else {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
 		}
@@ -222,7 +229,7 @@ func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
 // makeNamedCommandHandler returns an MCP handler that runs the given shell expression.
 func (s *Server) makeNamedCommandHandler(expr string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+		execCtx, cancel := context.WithTimeout(ctx, s.commandTimeout)
 		defer cancel()
 
 		cmd := exec.CommandContext(execCtx, "sh", "-c", expr)
@@ -235,7 +242,7 @@ func (s *Server) makeNamedCommandHandler(expr string) server.ToolHandlerFunc {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = exitErr.ExitCode()
 			} else if execCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("command timed out after 120 seconds"), nil
+				return mcp.NewToolResultError(fmt.Sprintf("command timed out after %d seconds", int(s.commandTimeout.Seconds()))), nil
 			} else {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
 			}

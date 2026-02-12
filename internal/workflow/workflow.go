@@ -17,6 +17,10 @@ import (
 	"github.com/richvanbergen/cbox/internal/sandbox"
 )
 
+// maxPRFetchConcurrency limits the number of concurrent PR status fetches
+// to avoid overwhelming the provider API when many flows are active.
+const maxPRFetchConcurrency = 5
+
 // resolveOpenCommand determines the open command to run based on the flag state.
 // If openFlag is false, no open command should run (returns "").
 // If openFlag is true and openCmd is non-empty, it returns openCmd.
@@ -613,8 +617,9 @@ func FlowStatus(projectDir, branch string) error {
 		}
 	}
 
-	// Fetch PR statuses concurrently
+	// Fetch PR statuses concurrently with bounded parallelism
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxPRFetchConcurrency)
 	for i, fl := range flowLines {
 		if !fl.needsPR {
 			continue
@@ -622,6 +627,8 @@ func FlowStatus(projectDir, branch string) error {
 		wg.Add(1)
 		go func(idx int, s *FlowState) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			phase := s.Phase
 			prStatus, err := fetchPRStatus(wf, s)
 			if err == nil && prStatus != nil {
@@ -725,6 +732,7 @@ func findMergedFlows(wf *config.WorkflowConfig, states []*FlowState) []*FlowStat
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	sem := make(chan struct{}, maxPRFetchConcurrency)
 	spinner := output.NewLineSpinner(len(states))
 	for i, s := range states {
 		results[i] = flowResult{state: s}
@@ -738,6 +746,8 @@ func findMergedFlows(wf *config.WorkflowConfig, states []*FlowState) []*FlowStat
 		wg.Add(1)
 		go func(idx int, s *FlowState) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			prStatus, err := fetchPRStatus(wf, s)
 			merged := err == nil && prStatus != nil && strings.ToUpper(prStatus.State) == "MERGED"
 			mu.Lock()

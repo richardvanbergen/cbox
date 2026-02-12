@@ -147,6 +147,58 @@ func TestLoad_PrefersNewOverLegacy(t *testing.T) {
 	}
 }
 
+func TestLoad_TimeoutField(t *testing.T) {
+	dir := t.TempDir()
+	content := `timeout = 300` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Timeout != 300 {
+		t.Errorf("Timeout = %d, want 300", cfg.Timeout)
+	}
+}
+
+func TestLoad_NoTimeoutDefaultsToZero(t *testing.T) {
+	dir := t.TempDir()
+	content := `host_commands = ["git"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Timeout != 0 {
+		t.Errorf("Timeout = %d, want 0 (unset)", cfg.Timeout)
+	}
+}
+
+func TestSaveAndLoad_RoundTripTimeout(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Timeout = 600
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if loaded.Timeout != 600 {
+		t.Errorf("Timeout = %d, want 600", loaded.Timeout)
+	}
+}
+
 func TestSaveAndLoad_RoundTripCopyFiles(t *testing.T) {
 	dir := t.TempDir()
 

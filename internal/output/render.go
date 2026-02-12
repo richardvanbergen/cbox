@@ -99,8 +99,8 @@ func Text(format string, args ...any) {
 // line of output. It is used to visually frame third-party command output
 // (e.g. docker run) so it's easy to distinguish from cbox messages.
 //
-// For commands with complex terminal output that uses carriage returns for
-// in-place line updates (e.g. docker build), use NewPassthroughWriter instead.
+// For commands with interactive terminal output (e.g. docker build), connect
+// cmd.Stdout/cmd.Stderr directly to os.Stdout/os.Stderr to preserve TTY.
 type CommandWriter struct {
 	w    io.Writer
 	buf  []byte
@@ -140,28 +140,3 @@ func (cw *CommandWriter) Close() {
 	}
 }
 
-// PassthroughWriter forwards command output directly to the underlying writer
-// without adding border decorations. It adds a leading blank line for visual
-// separation, then passes bytes through unchanged. This preserves terminal
-// control sequences (e.g. carriage returns for in-place line updates) used by
-// commands like docker build.
-type PassthroughWriter struct {
-	w    io.Writer
-	once sync.Once
-}
-
-// NewPassthroughWriter returns a PassthroughWriter that forwards output to w
-// without border decoration.
-func NewPassthroughWriter(w io.Writer) *PassthroughWriter {
-	return &PassthroughWriter{w: w}
-}
-
-func (pw *PassthroughWriter) Write(p []byte) (int, error) {
-	pw.once.Do(func() {
-		fmt.Fprintln(pw.w)
-	})
-	return pw.w.Write(p)
-}
-
-// Close is a no-op; PassthroughWriter does not buffer.
-func (pw *PassthroughWriter) Close() {}

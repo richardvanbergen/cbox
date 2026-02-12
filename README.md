@@ -123,6 +123,10 @@ test = "npm test"
 | `env_file` | Path to an env file |
 | `browser` | Enable Chrome bridge for browser-aware Claude sessions |
 | `host_commands` | Commands Claude can run on the host via the `run_command` MCP tool (e.g. `git`, `gh`) |
+| `copy_files` | Files or directories to copy from the main project into each new worktree |
+| `dockerfile` | Path to custom Dockerfile (see `cbox eject`) |
+| `open` | Shell command to run before chat (use `$Dir` for worktree path, e.g., `code $Dir`) |
+| `editor` | Editor command for editing flow descriptions (e.g., `vim`, `code --wait`) |
 
 ## Commands
 
@@ -146,9 +150,38 @@ Launches Claude Code interactively in the Claude container.
 
 Runs a one-shot Claude prompt in the Claude container (headless, JSON output).
 
+**Flags:**
+- `--open [command]` — Run a command before starting chat (uses `open` config if no command specified; use `$Dir` for worktree path)
+
 ### `cbox shell <branch>`
 
 Opens a bash shell in the Claude container. Useful for debugging.
+
+### `cbox open <branch>`
+
+Runs the `open` command configured in `.cbox.toml` for the specified sandbox without starting a chat session. Useful for opening your editor or browser to the worktree.
+
+**Flags:**
+- `--open <command>` — Override the config and run a custom command (use `$Dir` for worktree path)
+
+### `cbox run <command>`
+
+Runs a named command from the `commands` section of `.cbox.toml` directly on the host machine (not via MCP). Useful for local development workflows.
+
+**Example:**
+```bash
+# With this config:
+# [commands]
+# test = "go test ./..."
+
+cbox run test  # runs 'go test ./...' on the host
+```
+
+### `cbox eject`
+
+Copies the embedded Dockerfile into your project as `Dockerfile.cbox` and updates `.cbox.toml` to reference it. Use this when you need to customize the container image (e.g., to install runtimes like Node.js or Python).
+
+After ejecting, you can freely edit `Dockerfile.cbox`. Existing sandboxes need rebuilding with `cbox up --rebuild <branch>`.
 
 ### `cbox list`
 
@@ -194,6 +227,116 @@ With this config, Claude can run `git status`, `gh pr create`, etc. on the host 
 
 Path arguments containing `/workspace/...` are automatically translated to the host worktree path, and paths outside the worktree are rejected.
 
+## File Copying
+
+When `cbox up` creates a new worktree, you can automatically copy files or directories from your main project directory into it using the `copy_files` configuration:
+
+```toml
+copy_files = [".env", "node_modules", "vendor"]
+```
+
+This is useful for:
+- **Environment files** (`.env`, `.env.local`) that shouldn't be in git
+- **Dependencies** (`node_modules`, `vendor`) to avoid reinstalling on every branch
+- **Build artifacts** or cached files that are .gitignored
+
+### How it works
+
+The worktree itself is **mounted** into the container via Docker volume at `/workspace`, so changes are immediately visible on both the host and container—no copying between host and container occurs.
+
+However, when creating a new worktree with `git worktree add`, git only checks out tracked files. The `copy_files` setting lets you supplement each new worktree with additional files from your main project:
+
+1. **Worktree creation** — git creates the worktree with tracked files
+2. **File copying** — cbox copies each pattern from the main project to the worktree
+3. **Container mount** — the worktree is bind-mounted to `/workspace` in the container
+
+### Behavior
+
+- Patterns are relative to the project root
+- Missing files are **silently skipped** (so optional entries like `.env` don't cause errors)
+- Both files and directories are supported
+- For directories, the entire tree is recursively copied
+- File permissions are preserved
+
+### Example
+
+```toml
+copy_files = [
+    ".env",              # environment secrets
+    "node_modules",      # pre-installed dependencies
+    ".next",             # Next.js build cache
+]
+```
+
+With this config, each new worktree will have these files copied from your main project directory, even though they're not in git.
+
+## Custom Dockerfiles
+
+By default, cbox uses a minimal Debian-based image with Claude CLI. If you need additional tools (Node.js, Python, Go, etc.) or system packages in the container, you can customize the Dockerfile:
+
+```bash
+# Eject the embedded Dockerfile
+cbox eject
+```
+
+This creates `Dockerfile.cbox` in your project and updates `.cbox.toml`:
+
+```toml
+dockerfile = "Dockerfile.cbox"
+```
+
+**Example customization:**
+
+```dockerfile
+# Add Node.js runtime
+FROM node:20-bookworm-slim AS node-base
+
+FROM debian:bookworm-slim
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/
+COPY --from=node-base /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
+# Rest of the original Dockerfile...
+```
+
+After editing, rebuild existing sandboxes:
+
+```bash
+cbox up --rebuild <branch>
+```
+
+## Auto-open Command
+
+The `open` config field lets you automatically run a command when starting a chat session, useful for opening your editor or browser:
+
+```toml
+open = "code $Dir"  # Open VS Code in the worktree directory
+```
+
+The special variable `$Dir` is replaced with the worktree path at runtime.
+
+**Usage:**
+
+```bash
+# Uses the configured open command automatically
+cbox chat my-branch --open
+
+# Or override with a custom command
+cbox chat my-branch --open "cursor $Dir"
+
+# Run open command without starting chat
+cbox open my-branch
+```
+
+**Common examples:**
+
+```toml
+open = "code $Dir"                           # VS Code
+open = "cursor $Dir"                         # Cursor
+open = "open -a 'IntelliJ IDEA' $Dir"       # IntelliJ (macOS)
+open = "tmux new-session -s cbox -c $Dir"   # tmux session
+```
+
 ## Workflow (`cbox flow`)
 
 Workflow orchestration for task-driven development. Creates an issue, spins up a sandbox, and provides the inner Claude with task context — the inner Claude drives the work, the flow system handles issue tracking.
@@ -208,8 +351,10 @@ cbox flow init
 ### Usage
 
 ```bash
-# Create issue + sandbox + task context
-cbox flow start "Add user authentication"
+# Create issue + sandbox + task context (opens editor for description if not provided)
+cbox flow start
+# Or provide description inline
+cbox flow start -d "Add user authentication"
 
 # Open interactive chat (refreshes task from issue)
 cbox flow chat add-user-authentication
@@ -246,7 +391,17 @@ cbox flow start --yolo "Add user authentication"
 
 ### Workflow config
 
-The `workflow` section of `.cbox.toml` controls issue tracking commands:
+The `workflow` section of `.cbox.toml` controls issue tracking commands.
+
+You can also configure an `editor` at the top level for editing flow descriptions:
+
+```toml
+editor = "vim"  # or "code --wait", "nano", etc.
+```
+
+If not configured, defaults to `$EDITOR` environment variable, then falls back to a temporary file approach.
+
+Workflow commands:
 
 ```toml
 [workflow]
@@ -261,6 +416,7 @@ comment = "gh issue comment \"$IssueID\" --body \"$Body\""
 
 [workflow.pr]
 create = "gh pr create --title \"$Title\" --body \"$Description\""
+view = "gh pr view \"$PRNumber\" --json number,state,title,url,mergedAt"
 merge = "gh pr merge \"$PRNumber\" --merge"
 
 [workflow.prompts]

@@ -102,6 +102,38 @@ func parseIssueJSON(jsonStr string) (*IssueInfo, error) {
 	return info, nil
 }
 
+// PRStatus holds the state of a pull request fetched from the provider.
+type PRStatus struct {
+	Number   string
+	State    string // e.g. "OPEN", "CLOSED", "MERGED"
+	Title    string
+	URL      string
+	MergedAt string
+}
+
+// parsePRJSON parses the JSON output from `gh pr view --json`.
+func parsePRJSON(jsonStr string) (*PRStatus, error) {
+	var raw struct {
+		Number   int    `json:"number"`
+		State    string `json:"state"`
+		Title    string `json:"title"`
+		URL      string `json:"url"`
+		MergedAt string `json:"mergedAt"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		return nil, fmt.Errorf("parsing PR JSON: %w", err)
+	}
+
+	return &PRStatus{
+		Number:   fmt.Sprintf("%d", raw.Number),
+		State:    raw.State,
+		Title:    raw.Title,
+		URL:      raw.URL,
+		MergedAt: raw.MergedAt,
+	}, nil
+}
+
 // parsePROutput extracts PR URL and number from a `gh pr create` URL.
 // The URL is expected to be like https://github.com/owner/repo/pull/123.
 func parsePROutput(output string) (url, number string, err error) {

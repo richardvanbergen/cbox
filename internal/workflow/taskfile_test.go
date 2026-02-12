@@ -67,6 +67,60 @@ func TestParseIssueJSON_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParsePRJSON(t *testing.T) {
+	input := `{
+		"number": 42,
+		"state": "MERGED",
+		"title": "Add feature X",
+		"url": "https://github.com/owner/repo/pull/42",
+		"mergedAt": "2025-01-15T10:30:00Z"
+	}`
+
+	status, err := parsePRJSON(input)
+	if err != nil {
+		t.Fatalf("parsePRJSON failed: %v", err)
+	}
+
+	if status.Number != "42" {
+		t.Errorf("Number = %q, want %q", status.Number, "42")
+	}
+	if status.State != "MERGED" {
+		t.Errorf("State = %q, want %q", status.State, "MERGED")
+	}
+	if status.Title != "Add feature X" {
+		t.Errorf("Title = %q, want %q", status.Title, "Add feature X")
+	}
+	if status.URL != "https://github.com/owner/repo/pull/42" {
+		t.Errorf("URL = %q, want %q", status.URL, "https://github.com/owner/repo/pull/42")
+	}
+	if status.MergedAt != "2025-01-15T10:30:00Z" {
+		t.Errorf("MergedAt = %q, want %q", status.MergedAt, "2025-01-15T10:30:00Z")
+	}
+}
+
+func TestParsePRJSON_Open(t *testing.T) {
+	input := `{"number": 7, "state": "OPEN", "title": "WIP", "url": "https://github.com/owner/repo/pull/7", "mergedAt": ""}`
+
+	status, err := parsePRJSON(input)
+	if err != nil {
+		t.Fatalf("parsePRJSON failed: %v", err)
+	}
+
+	if status.State != "OPEN" {
+		t.Errorf("State = %q, want %q", status.State, "OPEN")
+	}
+	if status.MergedAt != "" {
+		t.Errorf("MergedAt = %q, want empty", status.MergedAt)
+	}
+}
+
+func TestParsePRJSON_InvalidJSON(t *testing.T) {
+	_, err := parsePRJSON("not json")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
 func TestParsePROutput(t *testing.T) {
 	tests := []struct {
 		name       string

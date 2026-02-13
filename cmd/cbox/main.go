@@ -38,6 +38,7 @@ func main() {
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
+	root.AddCommand(serveCmd())
 	root.AddCommand(runCmd())
 	root.AddCommand(ejectCmd())
 	root.AddCommand(completionCmd())
@@ -366,6 +367,18 @@ func cleanCmd() *cobra.Command {
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Clean(projectDir(), args[0])
+		},
+	}
+}
+
+func serveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "serve <branch>",
+		Short:             "Start the serve process and Traefik route for a sandbox",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.Serve(projectDir(), args[0])
 		},
 	}
 }

@@ -289,6 +289,68 @@ func Info(projectDir, branch string) error {
 	return nil
 }
 
+// Serve starts the serve process and Traefik route for an existing sandbox.
+func Serve(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
+	if err != nil {
+		return err
+	}
+
+	if state.ServePID > 0 {
+		return fmt.Errorf("serve process already running (PID %d, URL %s)", state.ServePID, state.ServeURL)
+	}
+
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+
+	if cfg.Serve == nil || cfg.Serve.Command == "" {
+		return fmt.Errorf("no [serve] section configured in %s", config.ConfigFile)
+	}
+
+	projectName := filepath.Base(projectDir)
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+
+	output.Progress("Starting serve process")
+	servePID, servePort, err := startServeProcess(cfg.Serve.Command, cfg.Serve.Port)
+	if err != nil {
+		return fmt.Errorf("starting serve process: %w", err)
+	}
+	output.Text("  Serve process listening on port %d", servePort)
+
+	proxyPort := cfg.Serve.ProxyPort
+	if proxyPort <= 0 {
+		proxyPort = 80
+	}
+
+	output.Progress("Ensuring Traefik proxy is running")
+	if err := serve.EnsureTraefik(projectDir, projectName, proxyPort); err != nil {
+		return fmt.Errorf("starting traefik: %w", err)
+	}
+
+	if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort); err != nil {
+		return fmt.Errorf("adding traefik route: %w", err)
+	}
+
+	var serveURL string
+	if proxyPort == 80 {
+		serveURL = fmt.Sprintf("http://%s.%s.dev.localhost", safeBranch, projectName)
+	} else {
+		serveURL = fmt.Sprintf("http://%s.%s.dev.localhost:%d", safeBranch, projectName, proxyPort)
+	}
+
+	state.ServePID = servePID
+	state.ServePort = servePort
+	state.ServeURL = serveURL
+	if err := SaveState(projectDir, branch, state); err != nil {
+		return fmt.Errorf("saving state: %w", err)
+	}
+
+	output.Success("Serve URL: %s", serveURL)
+	return nil
+}
+
 // Clean stops the container, removes the network, worktree, and branch.
 func Clean(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)

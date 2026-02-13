@@ -73,6 +73,8 @@ func (s *LineSpinner) Resolve(index int, status string) {
 // resolved or the returned stop function is called.
 func (s *LineSpinner) Run() {
 	s.mu.Lock()
+	// Hide cursor and save position before initial print
+	fmt.Fprintf(s.w, "\033[?25l\0337")
 	// Print all lines initially
 	for _, l := range s.lines {
 		status := progressPrefix.Render(spinnerFrames[0])
@@ -90,6 +92,8 @@ func (s *LineSpinner) Run() {
 		select {
 		case <-s.done:
 			s.redraw()
+			// Show cursor again
+			fmt.Fprintf(s.w, "\033[?25h")
 			return
 		case <-ticker.C:
 			s.frame++
@@ -143,14 +147,15 @@ func spinTo(w io.Writer, msg string, fn func() error) error {
 	}
 }
 
-// redraw moves the cursor up and reprints all lines.
+// redraw restores the cursor to the saved position and reprints all lines.
 func (s *LineSpinner) redraw() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	n := len(s.lines)
-	// Move cursor up n lines
-	fmt.Fprintf(s.w, "\033[%dA", n)
+	// Restore cursor to saved position (before the spinner lines) and
+	// clear everything below it. This correctly handles lines that wrap
+	// in narrow terminals, unlike \033[nA which counts display rows.
+	fmt.Fprintf(s.w, "\0338\033[J")
 
 	frameChar := spinnerFrames[s.frame%len(spinnerFrames)]
 	for _, l := range s.lines {
@@ -158,7 +163,6 @@ func (s *LineSpinner) redraw() {
 		if l.resolved {
 			status = l.status
 		}
-		// Clear line and print
-		fmt.Fprintf(s.w, "\033[2K%s\n", fmt.Sprintf(l.text, status))
+		fmt.Fprintf(s.w, "%s\n", fmt.Sprintf(l.text, status))
 	}
 }

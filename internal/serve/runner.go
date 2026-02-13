@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 )
+
+var extraPortRe = regexp.MustCompile(`\$Port(\d+)`)
 
 // runnerOutput is the JSON written to stdout for the parent process to read.
 type runnerOutput struct {
@@ -16,8 +19,9 @@ type runnerOutput struct {
 }
 
 // RunServeCommand allocates a port, prints it as JSON to stdout, then runs the
-// user's command with $Port replaced by the allocated port. It blocks until
-// SIGTERM/SIGINT, forwarding the signal to the child process.
+// user's command with port variables substituted. $Port is the primary port
+// (used for Traefik routing). Additional ports ($Port2, $Port3, ...) are
+// auto-allocated for services that need their own ports (e.g. dev tools).
 func RunServeCommand(command string, fixedPort int) error {
 	port, err := AllocatePort(fixedPort)
 	if err != nil {
@@ -30,7 +34,13 @@ func RunServeCommand(command string, fixedPort int) error {
 	}
 	fmt.Println(string(data))
 
-	expanded := strings.ReplaceAll(command, "$Port", fmt.Sprintf("%d", port))
+	// Allocate extra ports for $Port2, $Port3, etc. before replacing $Port
+	// (otherwise $Port2 would be partially matched by $Port).
+	expanded, err := expandExtraPorts(command)
+	if err != nil {
+		return err
+	}
+	expanded = strings.ReplaceAll(expanded, "$Port", fmt.Sprintf("%d", port))
 	cmd := exec.Command("sh", "-c", expanded)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -46,4 +56,32 @@ func RunServeCommand(command string, fixedPort int) error {
 	cmd.Process.Signal(syscall.SIGTERM)
 	cmd.Wait()
 	return nil
+}
+
+// expandExtraPorts finds all $Port2, $Port3, ... variables in the command and
+// replaces each with a freshly allocated random port.
+func expandExtraPorts(command string) (string, error) {
+	matches := extraPortRe.FindAllString(command, -1)
+	if len(matches) == 0 {
+		return command, nil
+	}
+
+	// Deduplicate — same variable used twice gets the same port.
+	allocated := make(map[string]string)
+	for _, m := range matches {
+		if _, ok := allocated[m]; ok {
+			continue
+		}
+		p, err := AllocatePort(0)
+		if err != nil {
+			return "", fmt.Errorf("allocating extra port for %s: %w", m, err)
+		}
+		allocated[m] = fmt.Sprintf("%d", p)
+	}
+
+	result := command
+	for variable, port := range allocated {
+		result = strings.ReplaceAll(result, variable, port)
+	}
+	return result, nil
 }

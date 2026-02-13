@@ -127,6 +127,7 @@ test = "npm test"
 | `dockerfile` | Path to custom Dockerfile (see `cbox eject`) |
 | `open` | Shell command to run before chat (use `$Dir` for worktree path, e.g., `code $Dir`) |
 | `editor` | Editor command for editing flow descriptions (e.g., `vim`, `code --wait`) |
+| `serve` | Serve process config — see [Serve](#serve-cbox-serve) |
 
 ## Commands
 
@@ -336,6 +337,84 @@ open = "cursor $Dir"                         # Cursor
 open = "open -a 'IntelliJ IDEA' $Dir"       # IntelliJ (macOS)
 open = "tmux new-session -s cbox -c $Dir"   # tmux session
 ```
+
+## Serve (`cbox serve`)
+
+When running multiple worktrees of the same app, port conflicts are inevitable (e.g., two branches both trying to bind to port 3000). The `[serve]` config section solves this by automatically allocating random ports and routing traffic through a shared Traefik reverse proxy using hostname-based routing.
+
+### Setup
+
+Add a `[serve]` section to `cbox.toml`:
+
+```toml
+[serve]
+command = "npm start --port $Port"
+```
+
+### How it works
+
+1. `cbox up` (or `cbox serve start`) allocates a random port and substitutes `$Port` in the command
+2. A shared Traefik reverse proxy container routes `http://<branch>.<project>.dev.localhost` to the allocated port
+3. `cbox down` (or `cbox serve stop`) removes the route; Traefik stops automatically when no routes remain
+
+```
+Browser → feature-auth.myapp.dev.localhost:80
+            ↓
+         Traefik container (shared across branches)
+            ↓
+         App process on host (random port)
+```
+
+The `.dev.localhost` domain resolves to `127.0.0.1` per RFC 6761 — no `/etc/hosts` or DNS configuration needed.
+
+### Port variables
+
+| Variable | Description |
+|---|---|
+| `$Port` | Primary port — used for Traefik routing |
+| `$Port2`, `$Port3`, ... | Additional auto-allocated ports for services that need their own ports |
+
+Use extra port variables when your app has auxiliary services that bind to fixed ports (e.g., dev tools):
+
+```toml
+# Allocate a random port for the app AND for TanStack devtools
+command = "DEVTOOLS_PORT=$Port2 npm run dev --host 0.0.0.0 --port $Port"
+```
+
+If a service needs a specific fixed port, just hardcode it:
+
+```toml
+command = "DEVTOOLS_PORT=42069 npm run dev --host 0.0.0.0 --port $Port"
+```
+
+### Config fields
+
+```toml
+[serve]
+command = "npm start --port $Port"  # required: shell command to run
+# port = 3000                       # optional: force a fixed primary port (skip random allocation)
+# proxy_port = 80                   # optional: override the Traefik listen port
+```
+
+### Important: bind to 0.0.0.0
+
+Your app must listen on `0.0.0.0`, not `127.0.0.1`, for Traefik (running in Docker) to reach it. Most dev servers default to localhost, so you'll typically need `--host 0.0.0.0`:
+
+```toml
+command = "npm run dev --host 0.0.0.0 --port $Port"
+```
+
+### Commands
+
+```bash
+# Start serve for an existing sandbox
+cbox serve start <branch>
+
+# Stop serve (removes Traefik route)
+cbox serve stop <branch>
+```
+
+Serve also starts/stops automatically with `cbox up` and `cbox down`.
 
 ## Workflow (`cbox flow`)
 

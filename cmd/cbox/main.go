@@ -372,13 +372,37 @@ func cleanCmd() *cobra.Command {
 }
 
 func serveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Manage the serve process for a sandbox",
+	}
+
+	cmd.AddCommand(serveStartCmd())
+	cmd.AddCommand(serveStopCmd())
+
+	return cmd
+}
+
+func serveStartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:               "serve <branch>",
-		Short:             "Start the serve process and Traefik route for a sandbox",
+		Use:               "start <branch>",
+		Short:             "Start the serve process and Traefik route",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Serve(projectDir(), args[0])
+		},
+	}
+}
+
+func serveStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "stop <branch>",
+		Short:             "Stop the serve process and remove Traefik route",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.ServeStop(projectDir(), args[0])
 		},
 	}
 }

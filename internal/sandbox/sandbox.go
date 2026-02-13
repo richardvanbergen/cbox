@@ -55,7 +55,42 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		}
 	}
 
-	// 2. Build Claude image
+	// 2. Start serve process and Traefik proxy if [serve] is configured.
+	//    This runs early so a broken serve command fails fast before we spend
+	//    time building images and creating containers.
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+	var servePID, servePort int
+	var serveURL string
+	if cfg.Serve != nil && cfg.Serve.Command != "" {
+		output.Progress("Starting serve process")
+		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port)
+		if err != nil {
+			return fmt.Errorf("starting serve process: %w", err)
+		}
+		output.Text("  Serve process listening on port %d", servePort)
+
+		proxyPort := cfg.Serve.ProxyPort
+		if proxyPort <= 0 {
+			proxyPort = 80
+		}
+		output.Progress("Ensuring Traefik proxy is running")
+		if err := serve.EnsureTraefik(projectDir, projectName, proxyPort); err != nil {
+			stopProcess(servePID)
+			return fmt.Errorf("starting traefik: %w", err)
+		}
+		if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort); err != nil {
+			stopProcess(servePID)
+			return fmt.Errorf("adding traefik route: %w", err)
+		}
+		if proxyPort == 80 {
+			serveURL = fmt.Sprintf("http://%s.%s.dev.localhost", safeBranch, projectName)
+		} else {
+			serveURL = fmt.Sprintf("http://%s.%s.dev.localhost:%d", safeBranch, projectName, proxyPort)
+		}
+		output.Success("Serve URL: %s", serveURL)
+	}
+
+	// 3. Build Claude image
 	claudeImage := docker.ImageName(projectName, "claude")
 	output.Progress("Building Claude image %s", claudeImage)
 	buildOpts := docker.BuildOptions{NoCache: opts.Rebuild}
@@ -66,24 +101,24 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		return fmt.Errorf("building claude image: %w", err)
 	}
 
-	// 3. Create Docker network
+	// 4. Create Docker network
 	networkName := docker.NetworkName(projectName, branch)
 	output.Progress("Creating network %s", networkName)
 	if err := docker.CreateNetwork(networkName); err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
-	// 4. Stop/remove existing Claude container
+	// 5. Stop/remove existing Claude container
 	claudeContainerName := docker.ContainerName(projectName, branch, "claude")
 	docker.StopAndRemove(claudeContainerName)
 
-	// 5. Resolve env file path
+	// 6. Resolve env file path
 	envFile := ""
 	if cfg.EnvFile != "" {
 		envFile = filepath.Join(projectDir, cfg.EnvFile)
 	}
 
-	// 6. Start Chrome bridge proxy if browser is enabled and bridge sockets exist on the host
+	// 7. Start Chrome bridge proxy if browser is enabled and bridge sockets exist on the host
 	var bridgePID int
 	var bridgeMappings []bridge.ProxyMapping
 	if cfg.Browser {
@@ -102,7 +137,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		}
 	}
 
-	// 7. Start MCP proxy if host_commands or commands are configured
+	// 8. Start MCP proxy if host_commands or commands are configured
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		output.Progress("Starting MCP host command server")
@@ -111,40 +146,6 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 			output.Warning("MCP host command server failed: %v", err)
 		} else {
 			output.Text("  MCP server listening on port %d", mcpPort)
-		}
-	}
-
-	// 8. Start serve process and Traefik proxy if [serve] is configured
-	safeBranch := strings.ReplaceAll(branch, "/", "-")
-	var servePID, servePort int
-	var serveURL string
-	if cfg.Serve != nil && cfg.Serve.Command != "" {
-		output.Progress("Starting serve process")
-		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port)
-		if err != nil {
-			output.Warning("Serve process failed: %v", err)
-		} else {
-			output.Text("  Serve process listening on port %d", servePort)
-
-			proxyPort := cfg.Serve.ProxyPort
-			if proxyPort <= 0 {
-				proxyPort = 80
-			}
-			output.Progress("Ensuring Traefik proxy is running")
-			if err := serve.EnsureTraefik(projectDir, projectName, proxyPort); err != nil {
-				output.Warning("Traefik proxy failed: %v", err)
-			} else {
-				if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort); err != nil {
-					output.Warning("Could not add Traefik route: %v", err)
-				} else {
-					if proxyPort == 80 {
-						serveURL = fmt.Sprintf("http://%s.%s.dev.localhost", safeBranch, projectName)
-					} else {
-						serveURL = fmt.Sprintf("http://%s.%s.dev.localhost:%d", safeBranch, projectName, proxyPort)
-					}
-					output.Success("Serve URL: %s", serveURL)
-				}
-			}
 		}
 	}
 
@@ -348,6 +349,30 @@ func Serve(projectDir, branch string) error {
 	}
 
 	output.Success("Serve URL: %s", serveURL)
+	return nil
+}
+
+// ServeStop stops the serve process and removes the Traefik route for a sandbox.
+func ServeStop(projectDir, branch string) error {
+	state, err := LoadState(projectDir, branch)
+	if err != nil {
+		return err
+	}
+
+	if state.ServePID == 0 && state.ServeURL == "" {
+		return fmt.Errorf("no serve process running for branch %q", branch)
+	}
+
+	stopServe(state, projectDir)
+
+	state.ServePID = 0
+	state.ServePort = 0
+	state.ServeURL = ""
+	if err := SaveState(projectDir, branch, state); err != nil {
+		return fmt.Errorf("saving state: %w", err)
+	}
+
+	output.Success("Serve process stopped.")
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -15,8 +16,8 @@ type runnerOutput struct {
 }
 
 // RunServeCommand allocates a port, prints it as JSON to stdout, then runs the
-// user's command with PORT set in the environment. It blocks until SIGTERM/SIGINT,
-// forwarding the signal to the child process.
+// user's command with $PORT replaced by the allocated port. It blocks until
+// SIGTERM/SIGINT, forwarding the signal to the child process.
 func RunServeCommand(command string, fixedPort int) error {
 	port, err := AllocatePort(fixedPort)
 	if err != nil {
@@ -29,8 +30,8 @@ func RunServeCommand(command string, fixedPort int) error {
 	}
 	fmt.Println(string(data))
 
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
+	expanded := strings.ReplaceAll(command, "$PORT", fmt.Sprintf("%d", port))
+	cmd := exec.Command("sh", "-c", expanded)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

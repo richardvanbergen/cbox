@@ -57,6 +57,38 @@ func TestCleanAttemptsDockerCleanupRegardlessOfRunningFlag(t *testing.T) {
 	}
 }
 
+// TestCleanQuietRemovesState verifies that CleanQuiet performs the same
+// cleanup as Clean (removing the state file) without emitting progress output.
+func TestCleanQuietRemovesState(t *testing.T) {
+	dir := t.TempDir()
+	branch := "test-quiet"
+
+	state := &State{
+		ClaudeContainer: "cbox-test-nonexistent-77777",
+		NetworkName:     "cbox-test-net-nonexistent-77777",
+		WorktreePath:    filepath.Join(dir, "fake-worktree"),
+		Branch:          branch,
+		ProjectDir:      dir,
+		Running:         false,
+	}
+
+	if err := SaveState(dir, branch, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	os.MkdirAll(state.WorktreePath, 0755)
+
+	err := CleanQuiet(dir, branch)
+	if err != nil {
+		t.Fatalf("CleanQuiet returned error: %v", err)
+	}
+
+	statePath := filepath.Join(dir, StateDir, branch+".state.json")
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Errorf("state file still exists after CleanQuiet: %s", statePath)
+	}
+}
+
 // TestCleanWithRunningState verifies Clean works when state.Running is true.
 func TestCleanWithRunningState(t *testing.T) {
 	dir := t.TempDir()

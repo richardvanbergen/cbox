@@ -244,20 +244,40 @@ func Info(projectDir, branch string) error {
 
 // Clean stops the container, removes the network, worktree, and branch.
 func Clean(projectDir, branch string) error {
+	return cleanImpl(projectDir, branch, false)
+}
+
+// CleanQuiet is like Clean but suppresses progress output.
+// Use this when Clean is called inside an output.Spin wrapper.
+func CleanQuiet(projectDir, branch string) error {
+	return cleanImpl(projectDir, branch, true)
+}
+
+func cleanImpl(projectDir, branch string, quiet bool) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
 
+	progress := output.Progress
+	warning := output.Warning
+	success := output.Success
+	if quiet {
+		noop := func(string, ...any) {}
+		progress = noop
+		warning = noop
+		success = noop
+	}
+
 	// Stop bridge proxy if running
 	if state.BridgeProxyPID > 0 {
-		output.Progress("Stopping Chrome bridge proxy")
+		progress("Stopping Chrome bridge proxy")
 		stopBridgeProxy(state.BridgeProxyPID)
 	}
 
 	// Stop MCP proxy if running
 	if state.MCPProxyPID > 0 {
-		output.Progress("Stopping MCP host command server")
+		progress("Stopping MCP host command server")
 		stopProcess(state.MCPProxyPID)
 	}
 
@@ -265,19 +285,19 @@ func Clean(projectDir, branch string) error {
 	// the state file can be stale (e.g. after a crash or if Down was called
 	// but the container was restarted). StopAndRemove is safe to call even
 	// when the container is already gone.
-	output.Progress("Stopping container %s", state.ClaudeContainer)
+	progress("Stopping container %s", state.ClaudeContainer)
 	if err := docker.StopAndRemove(state.ClaudeContainer); err != nil {
-		output.Warning("Could not remove container: %v", err)
+		warning("Could not remove container: %v", err)
 	}
 
 	// Remove network (safe to call even if already removed)
-	output.Progress("Removing network %s", state.NetworkName)
+	progress("Removing network %s", state.NetworkName)
 	docker.RemoveNetwork(state.NetworkName)
 
 	// Remove worktree
-	output.Progress("Removing worktree at %s", state.WorktreePath)
+	progress("Removing worktree at %s", state.WorktreePath)
 	if err := worktree.Remove(state.ProjectDir, state.WorktreePath); err != nil {
-		output.Warning("Could not remove worktree: %v", err)
+		warning("Could not remove worktree: %v", err)
 	}
 
 	// Delete branch (may already be gone after worktree remove)
@@ -286,7 +306,7 @@ func Clean(projectDir, branch string) error {
 	// Remove state
 	RemoveState(projectDir, branch)
 
-	output.Success("Sandbox cleaned up.")
+	success("Sandbox cleaned up.")
 	return nil
 }
 

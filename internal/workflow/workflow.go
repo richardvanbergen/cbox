@@ -507,7 +507,7 @@ func FlowMerge(projectDir, branch string) error {
 
 	// Clean up sandbox
 	if err := output.Spin("Cleaning up sandbox", func() error {
-		return sandbox.Clean(projectDir, branch)
+		return sandbox.CleanQuiet(projectDir, branch)
 	}); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}
@@ -700,7 +700,7 @@ func flowClean(projectDir string, confirmReader io.Reader) error {
 	for _, s := range merged {
 		branchName := s.Branch
 		if err := output.Spin(fmt.Sprintf("Cleaning up %s", branchName), func() error {
-			return sandbox.Clean(projectDir, branchName)
+			return sandbox.CleanQuiet(projectDir, branchName)
 		}); err != nil {
 			output.Warning("Sandbox cleanup failed for %s: %v", branchName, err)
 		}
@@ -866,7 +866,7 @@ func FlowAbandon(projectDir, branch string) error {
 
 	// Clean up sandbox
 	if err := output.Spin("Cleaning up sandbox", func() error {
-		return sandbox.Clean(projectDir, branch)
+		return sandbox.CleanQuiet(projectDir, branch)
 	}); err != nil {
 		output.Warning("Sandbox cleanup failed: %v", err)
 	}

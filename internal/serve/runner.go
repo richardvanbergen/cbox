@@ -40,7 +40,9 @@ func RunServeCommand(command string, fixedPort int, dir string) error {
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Stdout = os.Stdout
+	// Child stdout goes to stderr to avoid corrupting the JSON port output
+	// on our stdout (which the parent process reads via pipe).
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {

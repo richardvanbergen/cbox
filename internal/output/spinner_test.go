@@ -104,6 +104,50 @@ func TestLineSpinner_PartialResolve(t *testing.T) {
 	}
 }
 
+func TestLineSpinner_CursorSaveRestore(t *testing.T) {
+	spinner := NewLineSpinner(2)
+	spinner.SetLine(0, "line-a %s")
+	spinner.SetLine(1, "line-b %s")
+	spinner.Resolve(0, "OK")
+	spinner.Resolve(1, "OK")
+
+	var buf bytes.Buffer
+	spinner.w = &buf
+	spinner.Run()
+
+	out := buf.String()
+	// Run should emit cursor-hide + cursor-save before the initial lines
+	if !strings.Contains(out, "\033[?25l\0337") {
+		t.Errorf("expected cursor hide + save at start, got: %q", out)
+	}
+	// Redraw should emit cursor-restore + clear-to-end-of-screen
+	if !strings.Contains(out, "\0338\033[J") {
+		t.Errorf("expected cursor restore + clear in redraw, got: %q", out)
+	}
+	// Run should emit cursor-show at the end
+	if !strings.HasSuffix(out, "\033[?25h") {
+		t.Errorf("expected cursor show at end, got: %q", out)
+	}
+}
+
+func TestLineSpinner_NoCursorUpEscape(t *testing.T) {
+	// Verify the old \033[nA cursor-up escape is no longer used.
+	spinner := NewLineSpinner(2)
+	spinner.SetLine(0, "a %s")
+	spinner.SetLine(1, "b %s")
+	spinner.Resolve(0, "done")
+	spinner.Resolve(1, "done")
+
+	var buf bytes.Buffer
+	spinner.w = &buf
+	spinner.Run()
+
+	out := buf.String()
+	if strings.Contains(out, "\033[2A") {
+		t.Errorf("should not use cursor-up escape \\033[nA, got: %q", out)
+	}
+}
+
 func TestSpin_Success(t *testing.T) {
 	var buf bytes.Buffer
 	err := spinTo(&buf, "Doing work", func() error {

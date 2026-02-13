@@ -379,6 +379,7 @@ func serveCmd() *cobra.Command {
 
 	cmd.AddCommand(serveStartCmd())
 	cmd.AddCommand(serveStopCmd())
+	cmd.AddCommand(serveLogsCmd())
 
 	return cmd
 }
@@ -405,6 +406,35 @@ func serveStopCmd() *cobra.Command {
 			return sandbox.ServeStop(projectDir(), args[0])
 		},
 	}
+}
+
+func serveLogsCmd() *cobra.Command {
+	var follow bool
+
+	cmd := &cobra.Command{
+		Use:               "logs <branch>",
+		Short:             "Show serve process output",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logPath, err := sandbox.ServeLogPath(projectDir(), args[0])
+			if err != nil {
+				return err
+			}
+			tailArgs := []string{"-n", "+1"}
+			if follow {
+				tailArgs = append(tailArgs, "-f")
+			}
+			tailArgs = append(tailArgs, logPath)
+			c := exec.Command("tail", tailArgs...)
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			return c.Run()
+		},
+	}
+
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
+	return cmd
 }
 
 func runCmd() *cobra.Command {

@@ -352,6 +352,15 @@ func Serve(projectDir, branch string) error {
 	return nil
 }
 
+// ServeLogPath returns the path to the serve log file for a sandbox.
+func ServeLogPath(projectDir, branch string) (string, error) {
+	state, err := LoadState(projectDir, branch)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(state.WorktreePath), ".cbox", "serve.log"), nil
+}
+
 // ServeStop stops the serve process and removes the Traefik route for a sandbox.
 func ServeStop(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)

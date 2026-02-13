@@ -729,19 +729,21 @@ func testOutputCmd() *cobra.Command {
 func serveRunnerCmd() *cobra.Command {
 	var command string
 	var port int
+	var dir string
 
 	cmd := &cobra.Command{
 		Use:    "_serve-runner",
 		Short:  "Internal: run a serve process with PORT injection",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return serve.RunServeCommand(command, port)
+			return serve.RunServeCommand(command, port, dir)
 		},
 	}
 
 	cmd.Flags().StringVar(&command, "command", "", "Shell command to run")
 	cmd.MarkFlagRequired("command")
 	cmd.Flags().IntVar(&port, "port", 0, "Fixed port (0 = auto-allocate)")
+	cmd.Flags().StringVar(&dir, "dir", "", "Working directory")
 	return cmd
 }
 

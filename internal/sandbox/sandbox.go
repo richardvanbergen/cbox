@@ -63,7 +63,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	var serveURL string
 	if cfg.Serve != nil && cfg.Serve.Command != "" {
 		output.Progress("Starting serve process")
-		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port)
+		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port, wtPath)
 		if err != nil {
 			return fmt.Errorf("starting serve process: %w", err)
 		}
@@ -314,7 +314,7 @@ func Serve(projectDir, branch string) error {
 	safeBranch := strings.ReplaceAll(branch, "/", "-")
 
 	output.Progress("Starting serve process")
-	servePID, servePort, err := startServeProcess(cfg.Serve.Command, cfg.Serve.Port)
+	servePID, servePort, err := startServeProcess(cfg.Serve.Command, cfg.Serve.Port, state.WorktreePath)
 	if err != nil {
 		return fmt.Errorf("starting serve process: %w", err)
 	}
@@ -552,13 +552,13 @@ func startMCPProxy(projectDir, worktreePath string, hostCommands []string, named
 
 // startServeProcess launches `cbox _serve-runner` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startServeProcess(command string, fixedPort int) (int, int, error) {
+func startServeProcess(command string, fixedPort int, dir string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
 	}
 
-	args := []string{"_serve-runner", "--command", command, "--port", fmt.Sprintf("%d", fixedPort)}
+	args := []string{"_serve-runner", "--command", command, "--port", fmt.Sprintf("%d", fixedPort), "--dir", dir}
 
 	cmd := exec.Command(selfPath, args...)
 	cmd.Stderr = os.Stderr

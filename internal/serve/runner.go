@@ -16,7 +16,7 @@ type runnerOutput struct {
 }
 
 // RunServeCommand allocates a port, prints it as JSON to stdout, then runs the
-// user's command with $PORT replaced by the allocated port. It blocks until
+// user's command with $Port replaced by the allocated port. It blocks until
 // SIGTERM/SIGINT, forwarding the signal to the child process.
 func RunServeCommand(command string, fixedPort int) error {
 	port, err := AllocatePort(fixedPort)
@@ -30,7 +30,7 @@ func RunServeCommand(command string, fixedPort int) error {
 	}
 	fmt.Println(string(data))
 
-	expanded := strings.ReplaceAll(command, "$PORT", fmt.Sprintf("%d", port))
+	expanded := strings.ReplaceAll(command, "$Port", fmt.Sprintf("%d", port))
 	cmd := exec.Command("sh", "-c", expanded)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

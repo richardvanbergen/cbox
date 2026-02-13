@@ -15,6 +15,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
+	"github.com/richvanbergen/cbox/internal/serve"
 	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,7 @@ func main() {
 	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
+	root.AddCommand(serveRunnerCmd())
 	root.AddCommand(testOutputCmd())
 
 	if err := root.Execute(); err != nil {
@@ -685,6 +687,25 @@ func testOutputCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func serveRunnerCmd() *cobra.Command {
+	var command string
+	var port int
+
+	cmd := &cobra.Command{
+		Use:    "_serve-runner",
+		Short:  "Internal: run a serve process with PORT injection",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return serve.RunServeCommand(command, port)
+		},
+	}
+
+	cmd.Flags().StringVar(&command, "command", "", "Shell command to run")
+	cmd.MarkFlagRequired("command")
+	cmd.Flags().IntVar(&port, "port", 0, "Fixed port (0 = auto-allocate)")
+	return cmd
 }
 
 func mcpProxyCmd() *cobra.Command {

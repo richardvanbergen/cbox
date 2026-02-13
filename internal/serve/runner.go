@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var extraPortRe = regexp.MustCompile(`\$Port(\d+)`)
@@ -28,12 +29,6 @@ func RunServeCommand(command string, fixedPort int, dir string) error {
 		return err
 	}
 
-	data, err := json.Marshal(runnerOutput{Port: port})
-	if err != nil {
-		return fmt.Errorf("marshaling output: %w", err)
-	}
-	fmt.Println(string(data))
-
 	// Allocate extra ports for $Port2, $Port3, etc. before replacing $Port
 	// (otherwise $Port2 would be partially matched by $Port).
 	expanded, err := expandExtraPorts(command)
@@ -52,13 +47,49 @@ func RunServeCommand(command string, fixedPort int, dir string) error {
 		return fmt.Errorf("starting serve command: %w", err)
 	}
 
+	// Watch for early exit — if the command dies within the grace period,
+	// exit with an error so the parent process (reading our stdout) sees the
+	// pipe close without valid JSON and reports the failure.
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		// Command exited before we even printed the port — it failed.
+		if err != nil {
+			return fmt.Errorf("serve command failed: %w", err)
+		}
+		return fmt.Errorf("serve command exited immediately")
+	case <-time.After(500 * time.Millisecond):
+		// Command is still running after 500ms — looks healthy.
+	}
+
+	// Print port JSON now that we know the command didn't die immediately.
+	data, err := json.Marshal(runnerOutput{Port: port})
+	if err != nil {
+		cmd.Process.Signal(syscall.SIGTERM)
+		return fmt.Errorf("marshaling output: %w", err)
+	}
+	fmt.Println(string(data))
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-	<-sig
 
-	cmd.Process.Signal(syscall.SIGTERM)
-	cmd.Wait()
-	return nil
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("serve command failed: %w", err)
+		}
+		return nil
+	case <-sig:
+		cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			cmd.Process.Kill()
+		}
+		return nil
+	}
 }
 
 // expandExtraPorts finds all $Port2, $Port3, ... variables in the command and

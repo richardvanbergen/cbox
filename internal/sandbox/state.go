@@ -24,6 +24,9 @@ type State struct {
 	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
 	MCPProxyPID     int                   `json:"mcp_proxy_pid,omitempty"`
 	MCPProxyPort    int                   `json:"mcp_proxy_port,omitempty"`
+	ServePID        int                   `json:"serve_pid,omitempty"`
+	ServePort       int                   `json:"serve_port,omitempty"`
+	ServeURL        string                `json:"serve_url,omitempty"`
 }
 
 func stateFilePath(projectDir, branch string) string {

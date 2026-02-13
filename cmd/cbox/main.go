@@ -15,6 +15,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/hostcmd"
 	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
+	"github.com/richvanbergen/cbox/internal/serve"
 	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -37,12 +38,14 @@ func main() {
 	root.AddCommand(listCmd())
 	root.AddCommand(infoCmd())
 	root.AddCommand(cleanCmd())
+	root.AddCommand(serveCmd())
 	root.AddCommand(runCmd())
 	root.AddCommand(ejectCmd())
 	root.AddCommand(completionCmd())
 	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
+	root.AddCommand(serveRunnerCmd())
 	root.AddCommand(testOutputCmd())
 
 	if err := root.Execute(); err != nil {
@@ -368,6 +371,72 @@ func cleanCmd() *cobra.Command {
 	}
 }
 
+func serveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Manage the serve process for a sandbox",
+	}
+
+	cmd.AddCommand(serveStartCmd())
+	cmd.AddCommand(serveStopCmd())
+	cmd.AddCommand(serveLogsCmd())
+
+	return cmd
+}
+
+func serveStartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "start <branch>",
+		Short:             "Start the serve process and Traefik route",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.Serve(projectDir(), args[0])
+		},
+	}
+}
+
+func serveStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "stop <branch>",
+		Short:             "Stop the serve process and remove Traefik route",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.ServeStop(projectDir(), args[0])
+		},
+	}
+}
+
+func serveLogsCmd() *cobra.Command {
+	var follow bool
+
+	cmd := &cobra.Command{
+		Use:               "logs <branch>",
+		Short:             "Show serve process output",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logPath, err := sandbox.ServeLogPath(projectDir(), args[0])
+			if err != nil {
+				return err
+			}
+			tailArgs := []string{"-n", "+1"}
+			if follow {
+				tailArgs = append(tailArgs, "-f")
+			}
+			tailArgs = append(tailArgs, logPath)
+			c := exec.Command("tail", tailArgs...)
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			return c.Run()
+		},
+	}
+
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
+	return cmd
+}
+
 func runCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run <command>",
@@ -685,6 +754,27 @@ func testOutputCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func serveRunnerCmd() *cobra.Command {
+	var command string
+	var port int
+	var dir string
+
+	cmd := &cobra.Command{
+		Use:    "_serve-runner",
+		Short:  "Internal: run a serve process with PORT injection",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return serve.RunServeCommand(command, port, dir)
+		},
+	}
+
+	cmd.Flags().StringVar(&command, "command", "", "Shell command to run")
+	cmd.MarkFlagRequired("command")
+	cmd.Flags().IntVar(&port, "port", 0, "Fixed port (0 = auto-allocate)")
+	cmd.Flags().StringVar(&dir, "dir", "", "Working directory")
+	return cmd
 }
 
 func mcpProxyCmd() *cobra.Command {

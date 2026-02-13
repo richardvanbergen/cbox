@@ -147,6 +147,54 @@ func TestLoad_PrefersNewOverLegacy(t *testing.T) {
 	}
 }
 
+func TestLoad_ServeConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[serve]
+command = "npm start"
+port = 3000
+proxy_port = 8080
+`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Serve == nil {
+		t.Fatal("expected Serve to be non-nil")
+	}
+	if cfg.Serve.Command != "npm start" {
+		t.Errorf("Serve.Command = %q, want %q", cfg.Serve.Command, "npm start")
+	}
+	if cfg.Serve.Port != 3000 {
+		t.Errorf("Serve.Port = %d, want 3000", cfg.Serve.Port)
+	}
+	if cfg.Serve.ProxyPort != 8080 {
+		t.Errorf("Serve.ProxyPort = %d, want 8080", cfg.Serve.ProxyPort)
+	}
+}
+
+func TestLoad_NoServeSection(t *testing.T) {
+	dir := t.TempDir()
+	content := `host_commands = ["git"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Serve != nil {
+		t.Error("expected Serve to be nil when not configured")
+	}
+}
+
 func TestSaveAndLoad_RoundTripCopyFiles(t *testing.T) {
 	dir := t.TempDir()
 

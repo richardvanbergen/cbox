@@ -23,6 +23,13 @@ type Config struct {
 	Open         string            `toml:"open,omitempty"`
 	Editor       string            `toml:"editor,omitempty"`
 	Workflow     *WorkflowConfig   `toml:"workflow,omitempty"`
+	Serve        *ServeConfig      `toml:"serve,omitempty"`
+}
+
+type ServeConfig struct {
+	Command   string `toml:"command,omitempty"`
+	Port      int    `toml:"port,omitempty"`
+	ProxyPort int    `toml:"proxy_port,omitempty"`
 }
 
 type WorkflowConfig struct {

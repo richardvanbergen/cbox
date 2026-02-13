@@ -67,7 +67,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		if err != nil {
 			return fmt.Errorf("starting serve process: %w", err)
 		}
-		output.Text("  Serve process listening on port %d", servePort)
+		output.Text("  Serve process listening on port %d (log: .cbox/serve.log)", servePort)
 
 		proxyPort := cfg.Serve.ProxyPort
 		if proxyPort <= 0 {
@@ -318,7 +318,7 @@ func Serve(projectDir, branch string) error {
 	if err != nil {
 		return fmt.Errorf("starting serve process: %w", err)
 	}
-	output.Text("  Serve process listening on port %d", servePort)
+	output.Text("  Serve process listening on port %d (log: .cbox/serve.log)", servePort)
 
 	proxyPort := cfg.Serve.ProxyPort
 	if proxyPort <= 0 {
@@ -560,8 +560,17 @@ func startServeProcess(command string, fixedPort int, dir string) (int, int, err
 
 	args := []string{"_serve-runner", "--command", command, "--port", fmt.Sprintf("%d", fixedPort), "--dir", dir}
 
+	// Write serve output to a log file so it doesn't flood the terminal.
+	logDir := filepath.Join(filepath.Dir(dir), ".cbox")
+	os.MkdirAll(logDir, 0755)
+	logPath := filepath.Join(logDir, "serve.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return 0, 0, fmt.Errorf("creating serve log: %w", err)
+	}
+
 	cmd := exec.Command(selfPath, args...)
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = logFile
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

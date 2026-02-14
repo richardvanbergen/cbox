@@ -99,6 +99,36 @@ func RunClaudeContainer(name, image, network, worktreePath string, envVars []str
 	return nil
 }
 
+// terminalEnvArgs returns docker exec -e flags for host terminal environment
+// variables. These allow applications inside the container to detect the
+// terminal emulator and enable features like enhanced keyboard protocols
+// (e.g. kitty keyboard protocol for Shift+Enter) and inline image display.
+func terminalEnvArgs() []string {
+	vars := []string{
+		"COLORTERM",
+		"TERM_PROGRAM",
+		"TERM_PROGRAM_VERSION",
+		"LC_TERMINAL",
+		"LC_TERMINAL_VERSION",
+		"KITTY_WINDOW_ID",
+		"KITTY_PID",
+		"ITERM_SESSION_ID",
+		"WT_SESSION",
+		"WT_PROFILE_ID",
+		"TERMINAL_EMULATOR",
+		"WEZTERM_PANE",
+		"KONSOLE_VERSION",
+		"VTE_VERSION",
+	}
+	var args []string
+	for _, v := range vars {
+		if val := os.Getenv(v); val != "" {
+			args = append(args, "-e", v+"="+val)
+		}
+	}
+	return args
+}
+
 // Shell execs into a running container with an interactive shell.
 func Shell(name string) error {
 	dockerPath, err := exec.LookPath("docker")
@@ -106,7 +136,9 @@ func Shell(name string) error {
 		return fmt.Errorf("docker not found: %w", err)
 	}
 
-	args := []string{"docker", "exec", "-it", "-u", "claude", name, "bash"}
+	args := []string{"docker", "exec", "-it"}
+	args = append(args, terminalEnvArgs()...)
+	args = append(args, "-u", "claude", name, "bash")
 	return syscall.Exec(dockerPath, args, os.Environ())
 }
 
@@ -119,7 +151,9 @@ func Chat(name string, chrome bool, initialPrompt string, resume bool) error {
 		return fmt.Errorf("docker not found: %w", err)
 	}
 
-	args := []string{"docker", "exec", "-it", "-u", "claude", name, "claude", "--dangerously-skip-permissions"}
+	args := []string{"docker", "exec", "-it"}
+	args = append(args, terminalEnvArgs()...)
+	args = append(args, "-u", "claude", name, "claude", "--dangerously-skip-permissions")
 	if chrome {
 		args = append(args, "--chrome")
 	}

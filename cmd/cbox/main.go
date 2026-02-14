@@ -20,10 +20,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func main() {
+// version is set at build time via -ldflags "-X main.version=...".
+// If not set, resolveVersion falls back to the git short commit hash or "dev".
+var version string
+
+// resolveVersion returns the version string to display.
+func resolveVersion() string {
+	if version != "" {
+		return version
+	}
+	out, err := exec.Command("git", "describe", "--tags", "--exact-match").Output()
+	if err == nil {
+		if v := strings.TrimSpace(string(out)); v != "" {
+			return v
+		}
+	}
+	out, err = exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+	if err == nil {
+		if v := strings.TrimSpace(string(out)); v != "" {
+			return v
+		}
+	}
+	return "dev"
+}
+
+func buildRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "cbox",
 		Short:         "Sandboxed development environments for Claude Code",
+		Version:       resolveVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -48,7 +73,11 @@ func main() {
 	root.AddCommand(serveRunnerCmd())
 	root.AddCommand(testOutputCmd())
 
-	if err := root.Execute(); err != nil {
+	return root
+}
+
+func main() {
+	if err := buildRootCmd().Execute(); err != nil {
 		output.Error("%v", err)
 		os.Exit(1)
 	}

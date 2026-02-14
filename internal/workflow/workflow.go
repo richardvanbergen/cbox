@@ -468,8 +468,14 @@ func FlowMerge(projectDir, branch string) error {
 
 	wf := cfg.Workflow
 
+	// Require a PR before allowing merge — without this check, merge
+	// would clean up the sandbox and destroy uncommitted work.
+	if state.PRURL == "" {
+		return fmt.Errorf("no PR has been created for branch %q — run `cbox flow pr %s` first", branch, branch)
+	}
+
 	// Merge PR
-	if state.PRURL != "" && wf != nil && wf.PR != nil && wf.PR.Merge != "" {
+	if wf != nil && wf.PR != nil && wf.PR.Merge != "" {
 		prNumber := state.PRNumber
 		if prNumber == "" {
 			// Fallback: extract from URL for old state files

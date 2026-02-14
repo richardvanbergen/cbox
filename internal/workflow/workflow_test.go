@@ -401,3 +401,70 @@ func TestFlowClean_EmptyInput(t *testing.T) {
 		t.Errorf("flow state should still exist after EOF: %v", err)
 	}
 }
+
+func TestFlowMerge_RejectsWithoutPR(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a minimal cbox.toml
+	toml := "[workflow]\n[workflow.pr]\nmerge = \"echo merged\"\n"
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save flow state without a PR URL
+	state := &FlowState{
+		Branch: "no-pr-branch",
+		Title:  "Test without PR",
+		Phase:  "started",
+	}
+	if err := SaveFlowState(dir, state); err != nil {
+		t.Fatal(err)
+	}
+
+	err := FlowMerge(dir, "no-pr-branch")
+	if err == nil {
+		t.Fatal("expected error when merging without a PR, got nil")
+	}
+	if !strings.Contains(err.Error(), "no PR has been created") {
+		t.Errorf("error should mention missing PR, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "cbox flow pr") {
+		t.Errorf("error should suggest running cbox flow pr, got: %v", err)
+	}
+
+	// Flow state should still exist — nothing should be cleaned up
+	_, err = LoadFlowState(dir, "no-pr-branch")
+	if err != nil {
+		t.Errorf("flow state should still exist after rejected merge: %v", err)
+	}
+}
+
+func TestFlowMerge_ProceedsWithPR(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a cbox.toml with a merge command that succeeds
+	toml := "[workflow]\n[workflow.pr]\nmerge = \"echo merged\"\n"
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save flow state WITH a PR URL
+	state := &FlowState{
+		Branch:   "has-pr-branch",
+		Title:    "Test with PR",
+		Phase:    "started",
+		PRURL:    "https://github.com/test/repo/pull/1",
+		PRNumber: "1",
+	}
+	if err := SaveFlowState(dir, state); err != nil {
+		t.Fatal(err)
+	}
+
+	// FlowMerge should NOT return the "no PR" error
+	err := FlowMerge(dir, "has-pr-branch")
+	// It may fail for other reasons (sandbox cleanup, etc.) but should NOT
+	// fail with the "no PR has been created" error.
+	if err != nil && strings.Contains(err.Error(), "no PR has been created") {
+		t.Errorf("should not reject merge when PR exists, got: %v", err)
+	}
+}

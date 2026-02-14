@@ -723,6 +723,10 @@ func flowClean(projectDir string, confirmReader io.Reader) error {
 // findMergedFlows fetches PR status for all flows concurrently and returns
 // those whose PRs are in the MERGED state.
 func findMergedFlows(wf *config.WorkflowConfig, states []*FlowState) []*FlowState {
+	if len(states) == 0 {
+		return nil
+	}
+
 	type flowResult struct {
 		state  *FlowState
 		merged bool

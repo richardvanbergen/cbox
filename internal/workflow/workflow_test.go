@@ -144,7 +144,7 @@ func TestResolveOpenCommand(t *testing.T) {
 func TestFindMergedFlows(t *testing.T) {
 	wf := &config.WorkflowConfig{
 		PR: &config.WorkflowPRConfig{
-			View: `echo '{"number":$PRNumber,"state":"MERGED","title":"t","url":"u","mergedAt":"2025-01-01"}'`,
+			View: `echo "{\"number\":$PRNumber,\"state\":\"MERGED\",\"title\":\"t\",\"url\":\"u\",\"mergedAt\":\"2025-01-01\"}"`,
 		},
 	}
 
@@ -224,10 +224,12 @@ func setupFlowCleanDir(t *testing.T, viewCmd string, states []*FlowState) string
 	t.Helper()
 	dir := t.TempDir()
 
-	// Write cbox.toml
+	// Write cbox.toml — escape double quotes and backslashes for TOML basic string
+	escaped := strings.ReplaceAll(viewCmd, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	toml := `[workflow]
 [workflow.pr]
-view = ` + `"` + viewCmd + `"` + "\n"
+view = ` + `"` + escaped + `"` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}

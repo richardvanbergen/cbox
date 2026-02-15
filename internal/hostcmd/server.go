@@ -88,7 +88,7 @@ func (s *Server) Start() (int, error) {
 
 	// Register each named command as a dedicated tool
 	for name, expr := range s.namedCommands {
-		mcpServer.AddTool(s.namedToolDefinition(name, expr), s.makeNamedCommandHandler(expr))
+		mcpServer.AddTool(s.namedToolDefinition(name, expr), s.makeNamedCommandHandler(name, expr))
 	}
 
 	// Register report tool if report dir is set
@@ -220,7 +220,10 @@ func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
 }
 
 // makeNamedCommandHandler returns an MCP handler that runs the given shell expression.
-func (s *Server) makeNamedCommandHandler(expr string) server.ToolHandlerFunc {
+// Output is written to .cbox/logs/<name>.log and the response contains only the exit
+// code and log path. On failure the last 20 lines of output are included to speed up
+// error diagnosis.
+func (s *Server) makeNamedCommandHandler(name, expr string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 		defer cancel()
@@ -241,12 +244,40 @@ func (s *Server) makeNamedCommandHandler(expr string) server.ToolHandlerFunc {
 			}
 		}
 
-		result := fmt.Sprintf("exit_code: %d\n%s", exitCode, string(output))
+		// Write output to log file
+		logDir := filepath.Join(s.worktreePath, ".cbox", "logs")
+		if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("creating log dir: %v", mkErr)), nil
+		}
+		logFile := filepath.Join(logDir, name+".log")
+		if wErr := os.WriteFile(logFile, output, 0644); wErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("writing log file: %v", wErr)), nil
+		}
+
+		logPath := fmt.Sprintf(".cbox/logs/%s.log", name)
+
 		if exitCode != 0 {
+			tail := lastNLines(string(output), 20)
+			result := fmt.Sprintf("exit_code: %d\nlog: %s\n\n%s", exitCode, logPath, tail)
 			return mcp.NewToolResultError(result), nil
 		}
+		result := fmt.Sprintf("exit_code: 0\nlog: %s", logPath)
 		return mcp.NewToolResultText(result), nil
 	}
+}
+
+// lastNLines returns the last n lines from s. If s has fewer than n lines, it
+// returns s unchanged.
+func lastNLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	// Trim a trailing empty element produced by a final newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) <= n {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
 func (s *Server) reportToolDefinition() mcp.Tool {

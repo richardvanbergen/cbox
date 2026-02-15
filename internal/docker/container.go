@@ -242,7 +242,11 @@ IMPORTANT:
 These MCP tools run on the host and are your primary way to build, test, and run the project:
 %s
 
-Use these instead of trying to run build/test commands directly in the container.`, strings.Join(lines, "\n")))
+Use these instead of trying to run build/test commands directly in the container.
+
+Command output is saved to log files under `+"`"+`.cbox/logs/`+"`"+` in the worktree (e.g. `+"`"+`.cbox/logs/build.log`+"`"+`).
+The tool response contains the exit code and log path. On failure, the last 20 lines of
+output are included. To see full output, read the log file at `+"`"+`/workspace/.cbox/logs/<name>.log`+"`"+`.`, strings.Join(lines, "\n")))
 	}
 
 	// Self-healing section

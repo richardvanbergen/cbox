@@ -60,11 +60,6 @@ type WorkflowPromptConfig struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Commands: map[string]string{
-			"build": "echo 'TODO: set your build command'",
-			"test":  "echo 'TODO: set your test command'",
-			"run":   "echo 'TODO: set your run command'",
-		},
 		Env:          []string{"ANTHROPIC_API_KEY"},
 		HostCommands: []string{"git", "gh"},
 		CopyFiles:    []string{".env"},

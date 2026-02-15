@@ -224,12 +224,9 @@ func setupFlowCleanDir(t *testing.T, viewCmd string, states []*FlowState) string
 	t.Helper()
 	dir := t.TempDir()
 
-	// Write cbox.toml — escape double quotes and backslashes for TOML basic string
-	escaped := strings.ReplaceAll(viewCmd, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	toml := `[workflow]
-[workflow.pr]
-view = ` + `"` + escaped + `"` + "\n"
+	// Write cbox.toml — use TOML multi-line literal string (''') so that
+	// both single and double quotes inside the view command are preserved.
+	toml := "[workflow]\n[workflow.pr]\nview = '''" + viewCmd + "'''\n"
 	if err := os.WriteFile(filepath.Join(dir, config.ConfigFile), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}

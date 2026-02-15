@@ -19,6 +19,7 @@ type Config struct {
 	Browser      bool              `toml:"browser,omitempty"`
 	HostCommands []string          `toml:"host_commands,omitempty"`
 	CopyFiles    []string          `toml:"copy_files,omitempty"`
+	Ports        []string          `toml:"ports,omitempty"`
 	Dockerfile   string            `toml:"dockerfile,omitempty"`
 	Open         string            `toml:"open,omitempty"`
 	Editor       string            `toml:"editor,omitempty"`

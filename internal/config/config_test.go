@@ -147,6 +147,72 @@ func TestLoad_PrefersNewOverLegacy(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_ParsesPorts(t *testing.T) {
+	dir := t.TempDir()
+	content := `ports = ["3000", "8080:80", "127.0.0.1:3000:3000"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := []string{"3000", "8080:80", "127.0.0.1:3000:3000"}
+	if len(cfg.Ports) != len(want) {
+		t.Fatalf("Ports length = %d, want %d", len(cfg.Ports), len(want))
+	}
+	for i, v := range want {
+		if cfg.Ports[i] != v {
+			t.Errorf("Ports[%d] = %q, want %q", i, cfg.Ports[i], v)
+		}
+	}
+}
+
+func TestLoadConfig_NoPortsField(t *testing.T) {
+	dir := t.TempDir()
+	content := `host_commands = ["git"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Ports != nil {
+		t.Errorf("Ports = %v, want nil when not configured", cfg.Ports)
+	}
+}
+
+func TestSaveAndLoad_RoundTripPorts(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := &Config{
+		Ports: []string{"3000", "8080:80", "127.0.0.1:3000:3000"},
+	}
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(loaded.Ports) != 3 {
+		t.Fatalf("Ports length = %d, want 3", len(loaded.Ports))
+	}
+	want := []string{"3000", "8080:80", "127.0.0.1:3000:3000"}
+	for i, v := range want {
+		if loaded.Ports[i] != v {
+			t.Errorf("Ports[%d] = %q, want %q", i, loaded.Ports[i], v)
+		}
+	}
+}
+
 func TestLoad_ServeConfig(t *testing.T) {
 	dir := t.TempDir()
 	content := `

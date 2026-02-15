@@ -87,7 +87,7 @@ func TestBuildClaudeMD_AllCommands(t *testing.T) {
 		"setup": "go mod download",
 	}
 
-	md := BuildClaudeMD([]string{"git"}, commands)
+	md := BuildClaudeMD([]string{"git"}, commands, nil)
 
 	for _, name := range []string{"build", "test", "run", "setup"} {
 		if !strings.Contains(md, "cbox_"+name+":") {
@@ -102,7 +102,7 @@ func TestBuildClaudeMD_AllCommands(t *testing.T) {
 // TestBuildClaudeMD_NoCommands verifies that when no commands are configured,
 // all well-known commands appear as unavailable.
 func TestBuildClaudeMD_NoCommands(t *testing.T) {
-	md := BuildClaudeMD([]string{"git"}, nil)
+	md := BuildClaudeMD([]string{"git"}, nil, nil)
 
 	if !strings.Contains(md, "No project commands are configured") {
 		t.Error("expected 'No project commands are configured' message")
@@ -123,7 +123,7 @@ func TestBuildClaudeMD_PartialCommands(t *testing.T) {
 		"test":  "go test ./...",
 	}
 
-	md := BuildClaudeMD(nil, commands)
+	md := BuildClaudeMD(nil, commands, nil)
 
 	// build and test should be listed as available
 	if !strings.Contains(md, "cbox_build: `go build ./...`") {
@@ -157,7 +157,7 @@ func TestBuildClaudeMD_CustomCommand(t *testing.T) {
 		"lint": "golangci-lint run",
 	}
 
-	md := BuildClaudeMD(nil, commands)
+	md := BuildClaudeMD(nil, commands, nil)
 
 	if !strings.Contains(md, "cbox_lint: `golangci-lint run`") {
 		t.Error("expected custom command cbox_lint to be listed")
@@ -178,7 +178,7 @@ func TestBuildClaudeMD_SetupCommand(t *testing.T) {
 		"setup": "npm install",
 	}
 
-	md := BuildClaudeMD(nil, commands)
+	md := BuildClaudeMD(nil, commands, nil)
 
 	if !strings.Contains(md, "cbox_setup: `npm install`") {
 		t.Error("expected cbox_setup to be listed as available")
@@ -191,7 +191,7 @@ func TestBuildClaudeMD_SetupCommand(t *testing.T) {
 // TestBuildClaudeMD_ExtrasAppended verifies that extra sections are appended.
 func TestBuildClaudeMD_ExtrasAppended(t *testing.T) {
 	extra := "## Custom Section\n\nThis is a custom section."
-	md := BuildClaudeMD(nil, nil, extra)
+	md := BuildClaudeMD(nil, nil, nil, extra)
 
 	if !strings.Contains(md, "## Custom Section") {
 		t.Error("expected extra section to be appended")
@@ -201,7 +201,7 @@ func TestBuildClaudeMD_ExtrasAppended(t *testing.T) {
 // TestBuildClaudeMD_SetupInHelpText verifies that the self-healing section
 // mentions the setup command in the example toml.
 func TestBuildClaudeMD_SetupInHelpText(t *testing.T) {
-	md := BuildClaudeMD(nil, nil)
+	md := BuildClaudeMD(nil, nil, nil)
 
 	if !strings.Contains(md, `setup = "go mod download"`) {
 		t.Error("expected setup command in the cbox.toml example")

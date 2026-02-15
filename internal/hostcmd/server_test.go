@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -215,11 +218,15 @@ func TestNamedCommandExecutes(t *testing.T) {
 	if content == "" {
 		t.Fatal("expected non-empty content")
 	}
-	if !bytes.Contains([]byte(content), []byte("named-test-output")) {
-		t.Errorf("expected output to contain 'named-test-output', got: %s", content)
-	}
-	if !bytes.Contains([]byte(content), []byte("exit_code: 0")) {
+	if !strings.Contains(content, "exit_code: 0") {
 		t.Errorf("expected exit_code: 0, got: %s", content)
+	}
+	if !strings.Contains(content, "log: .cbox/logs/test.log") {
+		t.Errorf("expected log path, got: %s", content)
+	}
+	// Output should NOT be inline in the response
+	if strings.Contains(content, "named-test-output") {
+		t.Errorf("expected output NOT inline in response, got: %s", content)
 	}
 }
 
@@ -232,8 +239,55 @@ func TestNamedCommandFailure(t *testing.T) {
 	result := callNamedTool(t, url, "cbox_fail")
 
 	content := extractTextContent(t, result)
-	if !bytes.Contains([]byte(content), []byte("exit_code: 1")) {
+	if !strings.Contains(content, "exit_code: 1") {
 		t.Errorf("expected exit_code: 1, got: %s", content)
+	}
+	if !strings.Contains(content, "log: .cbox/logs/fail.log") {
+		t.Errorf("expected log path, got: %s", content)
+	}
+}
+
+func TestNamedCommandLogFileCreated(t *testing.T) {
+	dir := t.TempDir()
+	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
+		"build": "echo log-file-test-output",
+	})
+
+	callNamedTool(t, url, "cbox_build")
+
+	logPath := filepath.Join(dir, ".cbox", "logs", "build.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected log file at %s: %v", logPath, err)
+	}
+	if !strings.Contains(string(data), "log-file-test-output") {
+		t.Errorf("expected log to contain 'log-file-test-output', got: %s", string(data))
+	}
+}
+
+func TestNamedCommandFailureTail(t *testing.T) {
+	dir := t.TempDir()
+	// Generate 30 lines of output then fail — the response should contain only the last 20
+	expr := "for i in $(seq 1 30); do echo \"line-$i\"; done; exit 1"
+	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
+		"tailtest": expr,
+	})
+
+	result := callNamedTool(t, url, "cbox_tailtest")
+
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, "exit_code: 1") {
+		t.Errorf("expected exit_code: 1, got: %s", content)
+	}
+	// Should contain the last lines (line-30, line-11) but not the first lines (line-1 through line-10)
+	if !strings.Contains(content, "line-30") {
+		t.Errorf("expected tail to contain 'line-30', got: %s", content)
+	}
+	if !strings.Contains(content, "line-11") {
+		t.Errorf("expected tail to contain 'line-11', got: %s", content)
+	}
+	if strings.Contains(content, "line-1\n") {
+		t.Errorf("expected tail NOT to contain 'line-1', got: %s", content)
 	}
 }
 

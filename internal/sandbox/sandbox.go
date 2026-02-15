@@ -151,13 +151,13 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 
 	// 9. Start Claude container
 	output.Progress("Starting Claude container %s", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, cfg.Env, envFile, bridgeMappings); err != nil {
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, cfg.Env, envFile, bridgeMappings, cfg.Ports); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 
 	// 10. Inject system CLAUDE.md into Claude container
 	output.Progress("Injecting system CLAUDE.md")
-	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands, cfg.Commands); err != nil {
+	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands, cfg.Commands, cfg.Ports); err != nil {
 		output.Warning("Could not inject CLAUDE.md: %v", err)
 	}
 
@@ -178,6 +178,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		ClaudeImage:     claudeImage,
 		ProjectDir:      projectDir,
 		Running:         true,
+		Ports:           cfg.Ports,
 		BridgeProxyPID:  bridgePID,
 		BridgeMappings:  bridgeMappings,
 		MCPProxyPID:     mcpPID,
@@ -226,6 +227,7 @@ func Down(projectDir, branch string) error {
 
 	// Mark as not running but preserve state so `clean` can still find the worktree
 	state.Running = false
+	state.Ports = nil
 	state.BridgeProxyPID = 0
 	state.BridgeMappings = nil
 	state.MCPProxyPID = 0
@@ -284,6 +286,9 @@ func Info(projectDir, branch string) error {
 	output.Text("Worktree:         %s", state.WorktreePath)
 	output.Text("Claude container: %s", state.ClaudeContainer)
 	output.Text("Network:          %s", state.NetworkName)
+	if len(state.Ports) > 0 {
+		output.Text("Ports:            %s", strings.Join(state.Ports, ", "))
+	}
 	if state.ServeURL != "" {
 		output.Text("Serve URL:        %s", state.ServeURL)
 	}

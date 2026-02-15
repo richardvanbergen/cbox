@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -177,9 +178,15 @@ func ChatPrompt(name, prompt string) error {
 	return cmd.Run()
 }
 
-// InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
-// ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, extras ...string) error {
+// wellKnownCommands lists the command names that cbox recognises out of the
+// box. When a well-known command is not configured, the generated CLAUDE.md
+// tells the inner Claude that the tool is unavailable so it doesn't try to
+// call it.
+var wellKnownCommands = []string{"build", "test", "run", "setup"}
+
+// BuildClaudeMD generates the CLAUDE.md content for the container environment.
+// It is exported so tests can verify the output without Docker.
+func BuildClaudeMD(hostCommands []string, namedCommands map[string]string, extras ...string) string {
 	var sections []string
 
 	// Base environment section
@@ -231,19 +238,54 @@ IMPORTANT:
 		sections = append(sections, hostSection)
 	}
 
-	// Named commands section
-	if len(namedCommands) > 0 {
-		var lines []string
-		for name, expr := range namedCommands {
-			lines = append(lines, fmt.Sprintf("- cbox_%s: `%s`", name, expr))
+	// Project commands section — always present, showing both available
+	// and unavailable well-known commands so the inner Claude knows exactly
+	// what it can and cannot call.
+	var availableLines []string
+	var unavailableNames []string
+
+	// List configured commands
+	for name, expr := range namedCommands {
+		availableLines = append(availableLines, fmt.Sprintf("- cbox_%s: `%s`", name, expr))
+	}
+
+	// Determine which well-known commands are missing
+	for _, wk := range wellKnownCommands {
+		if _, ok := namedCommands[wk]; !ok {
+			unavailableNames = append(unavailableNames, wk)
 		}
-		sections = append(sections, fmt.Sprintf(`## Project Commands (MCP)
+	}
+
+	var cmdSection string
+	if len(availableLines) > 0 {
+		sort.Strings(availableLines)
+		cmdSection = fmt.Sprintf(`## Project Commands (MCP)
 
 These MCP tools run on the host and are your primary way to build, test, and run the project:
 %s
 
-Use these instead of trying to run build/test commands directly in the container.`, strings.Join(lines, "\n")))
+Use these instead of trying to run build/test commands directly in the container.`, strings.Join(availableLines, "\n"))
+	} else {
+		cmdSection = `## Project Commands (MCP)
+
+No project commands are configured.`
 	}
+
+	if len(unavailableNames) > 0 {
+		sort.Strings(unavailableNames)
+		var notAvailLines []string
+		for _, name := range unavailableNames {
+			notAvailLines = append(notAvailLines, fmt.Sprintf("- cbox_%s is NOT available", name))
+		}
+		cmdSection += fmt.Sprintf(`
+
+The following well-known commands are not configured and must NOT be called:
+%s
+
+To add them, the user can define them in cbox.toml under [commands].`, strings.Join(notAvailLines, "\n"))
+	}
+
+	sections = append(sections, cmdSection)
 
 	// Self-healing section
 	sections = append(sections, `## When something is missing
@@ -276,12 +318,13 @@ the user must rebuild: `+"`cbox up <branch> --rebuild`"+`
 host_commands = ["git", "gh", "bun"]
 `+"```"+`
 
-**Add or update project commands** — define build/test/run as MCP tools:
+**Add or update project commands** — define build/test/run/setup as MCP tools:
 `+"```toml"+`
 [commands]
 build = "go build ./..."
 test = "go test ./..."
 run = "go run ./cmd/myapp"
+setup = "go mod download"
 `+"```"+`
 
 **Use a custom Dockerfile** — bake runtimes or system packages into the container:
@@ -296,7 +339,13 @@ and references it in cbox.toml. This makes the tools available directly in the c
 		sections = append(sections, e)
 	}
 
-	claudeMD := strings.Join(sections, "\n\n") + "\n"
+	return strings.Join(sections, "\n\n") + "\n"
+}
+
+// InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
+// ~/.claude/CLAUDE.md so Claude Code understands the container environment.
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, extras ...string) error {
+	claudeMD := BuildClaudeMD(hostCommands, namedCommands, extras...)
 
 	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)

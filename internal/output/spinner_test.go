@@ -148,6 +148,20 @@ func TestLineSpinner_NoCursorUpEscape(t *testing.T) {
 	}
 }
 
+func TestLineSpinner_ZeroLines(t *testing.T) {
+	spinner := NewLineSpinner(0)
+
+	var buf bytes.Buffer
+	spinner.w = &buf
+
+	// Run should return immediately without blocking.
+	spinner.Run()
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output for zero lines, got: %q", buf.String())
+	}
+}
+
 func TestSpin_Success(t *testing.T) {
 	var buf bytes.Buffer
 	err := spinTo(&buf, "Doing work", func() error {

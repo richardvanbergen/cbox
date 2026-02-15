@@ -13,6 +13,64 @@ func TestDefaultConfig_CopyFilesIncludesEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_CommandsEmpty(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Commands != nil {
+		t.Errorf("DefaultConfig().Commands = %v, want nil (commands are optional)", cfg.Commands)
+	}
+}
+
+func TestLoad_NoCommandsSection(t *testing.T) {
+	dir := t.TempDir()
+	content := `host_commands = ["git"]` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.Commands) != 0 {
+		t.Errorf("Commands = %v, want empty when not configured", cfg.Commands)
+	}
+}
+
+func TestLoad_PartialCommands(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[commands]
+build = "go build ./..."
+setup = "go mod download"
+`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFile), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.Commands) != 2 {
+		t.Fatalf("Commands length = %d, want 2", len(cfg.Commands))
+	}
+	if cfg.Commands["build"] != "go build ./..." {
+		t.Errorf("Commands[build] = %q, want %q", cfg.Commands["build"], "go build ./...")
+	}
+	if cfg.Commands["setup"] != "go mod download" {
+		t.Errorf("Commands[setup] = %q, want %q", cfg.Commands["setup"], "go mod download")
+	}
+	// test and run should not exist
+	if _, ok := cfg.Commands["test"]; ok {
+		t.Error("Commands[test] should not exist when not configured")
+	}
+	if _, ok := cfg.Commands["run"]; ok {
+		t.Error("Commands[run] should not exist when not configured")
+	}
+}
+
 func TestLoadConfig_ParsesCopyFiles(t *testing.T) {
 	dir := t.TempDir()
 	content := `copy_files = [".env", ".env.local", "config/secrets"]` + "\n"

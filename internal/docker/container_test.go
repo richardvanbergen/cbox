@@ -3,6 +3,7 @@ package docker
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,137 @@ func TestTerminalEnvArgsSingleVar(t *testing.T) {
 		if args[i] != want {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], want)
 		}
+	}
+}
+
+// TestBuildClaudeMD_AllCommands verifies that when all well-known commands are
+// configured, none appear in the "not available" section.
+func TestBuildClaudeMD_AllCommands(t *testing.T) {
+	commands := map[string]string{
+		"build": "go build ./...",
+		"test":  "go test ./...",
+		"run":   "go run ./cmd/app",
+		"setup": "go mod download",
+	}
+
+	md := BuildClaudeMD([]string{"git"}, commands)
+
+	for _, name := range []string{"build", "test", "run", "setup"} {
+		if !strings.Contains(md, "cbox_"+name+":") {
+			t.Errorf("expected cbox_%s to appear as available", name)
+		}
+	}
+	if strings.Contains(md, "is NOT available") {
+		t.Error("no commands should be marked unavailable when all are configured")
+	}
+}
+
+// TestBuildClaudeMD_NoCommands verifies that when no commands are configured,
+// all well-known commands appear as unavailable.
+func TestBuildClaudeMD_NoCommands(t *testing.T) {
+	md := BuildClaudeMD([]string{"git"}, nil)
+
+	if !strings.Contains(md, "No project commands are configured") {
+		t.Error("expected 'No project commands are configured' message")
+	}
+	for _, name := range []string{"build", "run", "setup", "test"} {
+		want := "cbox_" + name + " is NOT available"
+		if !strings.Contains(md, want) {
+			t.Errorf("expected %q in output", want)
+		}
+	}
+}
+
+// TestBuildClaudeMD_PartialCommands verifies that only unconfigured well-known
+// commands appear as unavailable.
+func TestBuildClaudeMD_PartialCommands(t *testing.T) {
+	commands := map[string]string{
+		"build": "go build ./...",
+		"test":  "go test ./...",
+	}
+
+	md := BuildClaudeMD(nil, commands)
+
+	// build and test should be listed as available
+	if !strings.Contains(md, "cbox_build: `go build ./...`") {
+		t.Error("expected cbox_build to be listed as available")
+	}
+	if !strings.Contains(md, "cbox_test: `go test ./...`") {
+		t.Error("expected cbox_test to be listed as available")
+	}
+
+	// run and setup should be listed as unavailable
+	if !strings.Contains(md, "cbox_run is NOT available") {
+		t.Error("expected cbox_run to be listed as unavailable")
+	}
+	if !strings.Contains(md, "cbox_setup is NOT available") {
+		t.Error("expected cbox_setup to be listed as unavailable")
+	}
+
+	// build and test should NOT be listed as unavailable
+	if strings.Contains(md, "cbox_build is NOT available") {
+		t.Error("cbox_build should not be listed as unavailable")
+	}
+	if strings.Contains(md, "cbox_test is NOT available") {
+		t.Error("cbox_test should not be listed as unavailable")
+	}
+}
+
+// TestBuildClaudeMD_CustomCommand verifies that non-well-known commands are
+// listed as available but don't affect the unavailable list.
+func TestBuildClaudeMD_CustomCommand(t *testing.T) {
+	commands := map[string]string{
+		"lint": "golangci-lint run",
+	}
+
+	md := BuildClaudeMD(nil, commands)
+
+	if !strings.Contains(md, "cbox_lint: `golangci-lint run`") {
+		t.Error("expected custom command cbox_lint to be listed")
+	}
+	// All well-known commands should still be listed as unavailable
+	for _, name := range []string{"build", "run", "setup", "test"} {
+		want := "cbox_" + name + " is NOT available"
+		if !strings.Contains(md, want) {
+			t.Errorf("expected %q in output", want)
+		}
+	}
+}
+
+// TestBuildClaudeMD_SetupCommand verifies that setup is recognised as a
+// well-known command and appears correctly.
+func TestBuildClaudeMD_SetupCommand(t *testing.T) {
+	commands := map[string]string{
+		"setup": "npm install",
+	}
+
+	md := BuildClaudeMD(nil, commands)
+
+	if !strings.Contains(md, "cbox_setup: `npm install`") {
+		t.Error("expected cbox_setup to be listed as available")
+	}
+	if strings.Contains(md, "cbox_setup is NOT available") {
+		t.Error("cbox_setup should not be listed as unavailable when configured")
+	}
+}
+
+// TestBuildClaudeMD_ExtrasAppended verifies that extra sections are appended.
+func TestBuildClaudeMD_ExtrasAppended(t *testing.T) {
+	extra := "## Custom Section\n\nThis is a custom section."
+	md := BuildClaudeMD(nil, nil, extra)
+
+	if !strings.Contains(md, "## Custom Section") {
+		t.Error("expected extra section to be appended")
+	}
+}
+
+// TestBuildClaudeMD_SetupInHelpText verifies that the self-healing section
+// mentions the setup command in the example toml.
+func TestBuildClaudeMD_SetupInHelpText(t *testing.T) {
+	md := BuildClaudeMD(nil, nil)
+
+	if !strings.Contains(md, `setup = "go mod download"`) {
+		t.Error("expected setup command in the cbox.toml example")
 	}
 }
 

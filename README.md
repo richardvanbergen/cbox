@@ -124,6 +124,7 @@ test = "npm test"
 | `browser` | Enable Chrome bridge for browser-aware Claude sessions |
 | `host_commands` | Commands Claude can run on the host via the `run_command` MCP tool (e.g. `git`, `gh`) |
 | `copy_files` | Files or directories to copy from the main project into each new worktree |
+| `ports` | Ports to expose from the container to the host (Docker `-p` syntax) |
 | `dockerfile` | Path to custom Dockerfile (see `cbox eject`) |
 | `open` | Shell command to run before chat (use `$Dir` for worktree path, e.g., `code $Dir`) |
 | `editor` | Editor command for editing flow descriptions (e.g., `vim`, `code --wait`) |
@@ -301,6 +302,76 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 ```
 
 After editing, rebuild existing sandboxes:
+
+```bash
+cbox up --rebuild <branch>
+```
+
+## Port Exposure
+
+By default, cbox containers have no ports mapped to the host. The `ports` config field maps container ports to the host using Docker's standard `-p` syntax:
+
+```toml
+ports = ["3000", "8080:80", "127.0.0.1:3000:3000"]
+```
+
+| Format | Meaning |
+|---|---|
+| `"3000"` | Expose container port 3000 on the same host port |
+| `"8080:80"` | Map host port 8080 to container port 80 |
+| `"127.0.0.1:3000:3000"` | Bind to a specific host interface |
+
+Changing ports requires restarting the sandbox (`cbox down` + `cbox up`).
+
+### Docker-in-Docker
+
+The cbox container has the host Docker socket mounted and the Docker CLI installed, so Claude can run containers inside the sandbox. The `ports` field makes services started this way accessible from your host machine.
+
+**Without eject** — Claude can use `docker run` directly inside the container. Expose the port so you can reach it from the host:
+
+```toml
+ports = ["3000"]
+
+[commands]
+build = "go build -o app ./cmd/server"
+```
+
+Claude can then run the built binary via Docker:
+
+```bash
+docker run --rm -v /workspace:/workspace -w /workspace golang:1.23 ./app
+```
+
+The app listening on port 3000 inside the container is reachable at `localhost:3000` on your machine.
+
+**With eject** — If your app needs runtimes baked into the container, eject the Dockerfile and install them. The `ports` field works the same way:
+
+```bash
+cbox eject
+```
+
+Add your runtime to `Dockerfile.cbox`:
+
+```dockerfile
+FROM golang:1.23-bookworm AS go-base
+
+FROM debian:bookworm-slim
+COPY --from=go-base /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Rest of the original Dockerfile...
+```
+
+```toml
+dockerfile = "Dockerfile.cbox"
+ports = ["3000"]
+
+[commands]
+build = "go build -o app ./cmd/server"
+run = "./app"
+```
+
+Now Claude can build and run the app directly inside the container, and port 3000 is accessible on the host. Rebuild after ejecting:
 
 ```bash
 cbox up --rebuild <branch>

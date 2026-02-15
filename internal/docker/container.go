@@ -46,7 +46,7 @@ func RemoveNetwork(name string) error {
 }
 
 // RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping) error {
+func RunClaudeContainer(name, image, network, worktreePath string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping, ports []string) error {
 	currentUser := os.Getenv("USER")
 
 	args := []string{
@@ -55,6 +55,10 @@ func RunClaudeContainer(name, image, network, worktreePath string, envVars []str
 		"--network", network,
 		"-v", worktreePath + ":/workspace",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	for _, p := range ports {
+		args = append(args, "-p", p)
 	}
 
 	// Extract Claude Code OAuth credentials from macOS Keychain and pass to container
@@ -179,7 +183,7 @@ func ChatPrompt(name, prompt string) error {
 
 // InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
 // ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, extras ...string) error {
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, ports []string, extras ...string) error {
 	var sections []string
 
 	// Base environment section
@@ -247,6 +251,20 @@ Use these instead of trying to run build/test commands directly in the container
 Command output is saved to log files under `+"`"+`.cbox/logs/`+"`"+` in the worktree (e.g. `+"`"+`.cbox/logs/build.log`+"`"+`).
 The tool response contains the exit code and log path. On failure, the last 20 lines of
 output are included. To see full output, read the log file at `+"`"+`/workspace/.cbox/logs/<name>.log`+"`"+`.`, strings.Join(lines, "\n")))
+	}
+
+	// Exposed ports section
+	if len(ports) > 0 {
+		var portLines []string
+		for _, p := range ports {
+			portLines = append(portLines, fmt.Sprintf("- `%s`", p))
+		}
+		sections = append(sections, fmt.Sprintf(`## Exposed Ports
+
+The following ports are mapped from this container to the host:
+%s
+
+These ports were configured via the `+"`ports`"+` field in cbox.toml.`, strings.Join(portLines, "\n")))
 	}
 
 	// Self-healing section

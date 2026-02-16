@@ -55,10 +55,31 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		}
 	}
 
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+
+	// Set up git mounts so the worktree link resolves inside the container.
+	// A worktree's .git file contains a gitdir reference using an absolute
+	// host path that doesn't exist in the container. We mount the project's
+	// .git directory at /repo/.git and provide a rewritten .git file that
+	// points there instead.
+	var gitMounts *docker.GitMountConfig
+	wtName, gitErr := worktree.GitWorktreeName(wtPath)
+	if gitErr == nil {
+		gitDir := filepath.Join(projectDir, ".cbox", "git")
+		os.MkdirAll(gitDir, 0755)
+		containerGitFile := filepath.Join(gitDir, safeBranch+".gitfile")
+		gitContent := fmt.Sprintf("gitdir: /repo/.git/worktrees/%s\n", wtName)
+		if writeErr := os.WriteFile(containerGitFile, []byte(gitContent), 0644); writeErr == nil {
+			gitMounts = &docker.GitMountConfig{
+				ProjectGitDir:    filepath.Join(projectDir, ".git"),
+				ContainerGitFile: containerGitFile,
+			}
+		}
+	}
+
 	// 2. Start serve process and Traefik proxy if [serve] is configured.
 	//    This runs early so a broken serve command fails fast before we spend
 	//    time building images and creating containers.
-	safeBranch := strings.ReplaceAll(branch, "/", "-")
 	var servePID, servePort int
 	var serveURL string
 	if cfg.Serve != nil && cfg.Serve.Command != "" {
@@ -151,7 +172,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 
 	// 9. Start Claude container
 	output.Progress("Starting Claude container %s", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, cfg.Env, envFile, bridgeMappings, cfg.Ports); err != nil {
+	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, gitMounts, cfg.Env, envFile, bridgeMappings, cfg.Ports); err != nil {
 		return fmt.Errorf("starting claude container: %w", err)
 	}
 

@@ -35,6 +35,10 @@ func Create(projectDir, branch string) (string, error) {
 	cmd.Dir = projectDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		// Clean up any directory left behind by the failed attempt
+		// so the next git worktree add doesn't fail with "already exists".
+		os.RemoveAll(wtPath)
+
 		// Branch doesn't exist, create it
 		cmd = exec.Command("git", "worktree", "add", wtPath, "-b", branch)
 		cmd.Dir = projectDir
@@ -117,6 +121,22 @@ func CopyFiles(projectDir, wtPath string, patterns []string) error {
 		}
 	}
 	return nil
+}
+
+// GitWorktreeName returns the worktree directory name as registered in the
+// main repo's .git/worktrees/. It reads the .git file in the worktree
+// directory and extracts the final path component of the gitdir reference.
+func GitWorktreeName(wtPath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(wtPath, ".git"))
+	if err != nil {
+		return "", err
+	}
+	content := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(content, "gitdir: ") {
+		return "", fmt.Errorf(".git is not a worktree link file")
+	}
+	gitdir := strings.TrimPrefix(content, "gitdir: ")
+	return filepath.Base(gitdir), nil
 }
 
 // copyFile copies a single file from src to dst, preserving permissions.

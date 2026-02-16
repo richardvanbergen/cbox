@@ -13,6 +13,16 @@ import (
 	"github.com/richvanbergen/cbox/internal/output"
 )
 
+// GitMountConfig holds the paths needed to make git work inside the container.
+// A git worktree's .git file contains a gitdir reference to the main repo,
+// using an absolute host path that doesn't resolve inside the container.
+// These mounts provide the main repo's .git directory at a known container
+// path and a rewritten .git file that points to it.
+type GitMountConfig struct {
+	ProjectGitDir    string // Host path to project's .git directory
+	ContainerGitFile string // Host path to rewritten .git file for the container
+}
+
 // ContainerName returns a deterministic container name with a role suffix.
 func ContainerName(project, branch, role string) string {
 	safeBranch := strings.ReplaceAll(branch, "/", "-")
@@ -47,7 +57,7 @@ func RemoveNetwork(name string) error {
 }
 
 // RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath string, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping, ports []string) error {
+func RunClaudeContainer(name, image, network, worktreePath string, gitMounts *GitMountConfig, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping, ports []string) error {
 	currentUser := os.Getenv("USER")
 
 	args := []string{
@@ -56,6 +66,15 @@ func RunClaudeContainer(name, image, network, worktreePath string, envVars []str
 		"--network", network,
 		"-v", worktreePath + ":/workspace",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Mount the project's .git directory and a rewritten .git file so that
+	// the worktree link resolves correctly inside the container.
+	if gitMounts != nil && gitMounts.ProjectGitDir != "" && gitMounts.ContainerGitFile != "" {
+		args = append(args,
+			"-v", gitMounts.ProjectGitDir+":/repo/.git",
+			"-v", gitMounts.ContainerGitFile+":/workspace/.git:ro",
+		)
 	}
 
 	for _, p := range ports {

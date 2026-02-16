@@ -141,7 +141,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		output.Progress("Starting MCP host command server")
-		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
+		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, branch, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
 		if err != nil {
 			output.Warning("MCP host command server failed: %v", err)
 		} else {
@@ -519,13 +519,19 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(projectDir, worktreePath string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string) (int, int, error) {
+func startMCPProxy(projectDir, worktreePath, branch string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
 	}
 
 	args := []string{"_mcp-proxy", "--worktree", worktreePath}
+
+	// Store logs in the project .cbox dir, keyed by branch, so they're
+	// outside the worktree volume mount.
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+	logDir := filepath.Join(projectDir, ".cbox", "logs", safeBranch)
+	args = append(args, "--log-dir", logDir)
 
 	// Pass named commands as JSON via --commands flag
 	if len(namedCommands) > 0 {

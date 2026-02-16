@@ -270,9 +270,8 @@ These MCP tools run on the host and are your primary way to build, test, and run
 
 Use these instead of trying to run build/test commands directly in the container.
 
-Command output is saved to log files under `+"`"+`.cbox/logs/`+"`"+` in the worktree (e.g. `+"`"+`.cbox/logs/build.log`+"`"+`).
-The tool response contains the exit code and log path. On failure, the last 20 lines of
-output are included. To see full output, read the log file at `+"`"+`/workspace/.cbox/logs/<name>.log`+"`"+`.`, strings.Join(availableLines, "\n"))
+Each tool response includes the exit code and the most recent output inline (last 20 lines
+on success, last 40 lines on failure). Full logs are saved on the host for human operators.`, strings.Join(availableLines, "\n"))
 	} else {
 		cmdSection = `## Project Commands (MCP)
 
@@ -404,12 +403,26 @@ func InjectMCPConfig(claudeContainer string, mcpPort int) error {
 }
 `, mcpPort)
 
-	writeCmd := "cat > /workspace/.mcp.json && chown claude:claude /workspace/.mcp.json"
+	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/.mcp.json && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
 	cmd.Stdin = strings.NewReader(mcpConfig)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("writing .mcp.json: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// InjectFile writes arbitrary content to a path inside a running container.
+// Parent directories are created automatically and ownership is set to claude:claude.
+func InjectFile(container, path, content string) error {
+	dir := filepath.Dir(path)
+	writeCmd := fmt.Sprintf("mkdir -p %s && cat > %s && chown claude:claude %s", dir, path, path)
+	cmd := exec.Command("docker", "exec", "-i", container, "sh", "-c", writeCmd)
+	cmd.Stdin = strings.NewReader(content)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("writing %s: %s: %w", path, strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

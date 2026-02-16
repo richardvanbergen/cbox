@@ -810,6 +810,7 @@ func mcpProxyCmd() *cobra.Command {
 	var worktreePath string
 	var commandsJSON string
 	var reportDir string
+	var logDir string
 	var flowProjectDir string
 	var flowBranch string
 
@@ -831,7 +832,7 @@ func mcpProxyCmd() *cobra.Command {
 					Branch:     flowBranch,
 				}
 			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, flow)
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, logDir, flow)
 		},
 	}
 
@@ -839,6 +840,7 @@ func mcpProxyCmd() *cobra.Command {
 	cmd.MarkFlagRequired("worktree")
 	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
 	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
+	cmd.Flags().StringVar(&logDir, "log-dir", "", "Directory for command log files")
 	cmd.Flags().StringVar(&flowProjectDir, "flow-project-dir", "", "Project dir for flow commands")
 	cmd.Flags().StringVar(&flowBranch, "flow-branch", "", "Branch name for flow commands")
 	return cmd

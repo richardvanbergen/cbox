@@ -14,10 +14,13 @@ type proxyOutput struct {
 }
 
 // RunProxyCommand starts the MCP server, prints the port as JSON, and blocks until signaled.
-func RunProxyCommand(worktreePath string, commands []string, namedCommands map[string]string, reportDir string, flow *FlowConfig) error {
+func RunProxyCommand(worktreePath string, commands []string, namedCommands map[string]string, reportDir, logDir string, flow *FlowConfig) error {
 	srv := NewServer(worktreePath, commands, namedCommands)
 	if reportDir != "" {
 		srv.SetReportDir(reportDir)
+	}
+	if logDir != "" {
+		srv.SetLogDir(logDir)
 	}
 	if flow != nil {
 		srv.SetFlow(flow)

@@ -409,25 +409,22 @@ func AppendClaudeMD(claudeContainer, text string) error {
 	return nil
 }
 
-// InjectMCPConfig writes a .mcp.json file into the Claude container so Claude Code
-// can connect to the host MCP server.
+// InjectMCPConfig registers the host MCP server with Claude Code inside the container
+// using `claude mcp add`. This stores the config in Claude Code's internal settings
+// rather than a .mcp.json file in the workspace.
 func InjectMCPConfig(claudeContainer string, mcpPort int) error {
-	mcpConfig := fmt.Sprintf(`{
-  "mcpServers": {
-    "cbox-host": {
-      "type": "http",
-      "url": "http://host.docker.internal:%d/mcp"
-    }
-  }
-}
-`, mcpPort)
-
-	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/.mcp.json && chown -R claude:claude /home/claude/.claude"
-	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
-	cmd.Stdin = strings.NewReader(mcpConfig)
+	url := fmt.Sprintf("http://host.docker.internal:%d/mcp", mcpPort)
+	cmd := exec.Command("docker", "exec", "-u", "claude",
+		"-e", "CLAUDECODE=",
+		claudeContainer,
+		"claude", "mcp", "add",
+		"--transport", "http",
+		"--scope", "local",
+		"cbox-host", url,
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("writing .mcp.json: %s: %w", strings.TrimSpace(string(out)), err)
+		return fmt.Errorf("registering MCP server: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

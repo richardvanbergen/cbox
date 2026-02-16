@@ -6,6 +6,47 @@ import (
 	"testing"
 )
 
+func TestGitWorktreeName(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a worktree-style .git file
+	if err := os.WriteFile(filepath.Join(dir, ".git"),
+		[]byte("gitdir: /Users/rich/Code/myproject/.git/worktrees/feature-branch\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	name, err := GitWorktreeName(dir)
+	if err != nil {
+		t.Fatalf("GitWorktreeName: %v", err)
+	}
+	if name != "feature-branch" {
+		t.Errorf("got %q, want %q", name, "feature-branch")
+	}
+}
+
+func TestGitWorktreeName_NotWorktree(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a .git directory (not a file) to simulate a regular repo
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := GitWorktreeName(dir)
+	if err == nil {
+		t.Error("expected error for non-worktree .git directory")
+	}
+}
+
+func TestGitWorktreeName_Missing(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := GitWorktreeName(dir)
+	if err == nil {
+		t.Error("expected error for missing .git")
+	}
+}
+
 func TestCopyFiles_SingleFile(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()

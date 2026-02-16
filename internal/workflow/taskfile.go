@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/richvanbergen/cbox/internal/docker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,6 +69,19 @@ func loadTaskFile(worktreePath string) (*TaskFile, error) {
 		return nil, fmt.Errorf("parsing task file: %w", err)
 	}
 	return &tf, nil
+}
+
+// containerTaskPath is where the task file lives inside the container.
+const containerTaskPath = "/home/claude/.cbox-task"
+
+// injectTaskFile serializes a TaskFile and writes it into the container.
+func injectTaskFile(container string, tf *TaskFile) error {
+	data, err := yaml.Marshal(tf)
+	if err != nil {
+		return fmt.Errorf("marshaling task file: %w", err)
+	}
+	content := "# This file is managed by cbox. Do not edit manually.\n" + string(data)
+	return docker.InjectFile(container, containerTaskPath, content)
 }
 
 // parseIssueJSON parses the JSON output from `gh issue view --json`.

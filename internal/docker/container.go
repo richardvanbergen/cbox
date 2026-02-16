@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -181,9 +182,15 @@ func ChatPrompt(name, prompt string) error {
 	return cmd.Run()
 }
 
-// InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
-// ~/.claude/CLAUDE.md so Claude Code understands the container environment.
-func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, ports []string, extras ...string) error {
+// wellKnownCommands lists the command names that cbox recognises out of the
+// box. When a well-known command is not configured, the generated CLAUDE.md
+// tells the inner Claude that the tool is unavailable so it doesn't try to
+// call it.
+var wellKnownCommands = []string{"build", "test", "run", "setup"}
+
+// BuildClaudeMD generates the CLAUDE.md content for the container environment.
+// It is exported so tests can verify the output without Docker.
+func BuildClaudeMD(hostCommands []string, namedCommands map[string]string, ports []string, extras ...string) string {
 	var sections []string
 
 	// Base environment section
@@ -235,23 +242,57 @@ IMPORTANT:
 		sections = append(sections, hostSection)
 	}
 
-	// Named commands section
-	if len(namedCommands) > 0 {
-		var lines []string
-		for name, expr := range namedCommands {
-			lines = append(lines, fmt.Sprintf("- cbox_%s: `%s`", name, expr))
+	// Project commands section — always present, showing both available
+	// and unavailable well-known commands so the inner Claude knows exactly
+	// what it can and cannot call.
+	var availableLines []string
+	var unavailableNames []string
+
+	// List configured commands
+	for name, expr := range namedCommands {
+		availableLines = append(availableLines, fmt.Sprintf("- cbox_%s: `%s`", name, expr))
+	}
+
+	// Determine which well-known commands are missing
+	for _, wk := range wellKnownCommands {
+		if _, ok := namedCommands[wk]; !ok {
+			unavailableNames = append(unavailableNames, wk)
 		}
-		sections = append(sections, fmt.Sprintf(`## Project Commands (MCP)
+	}
+
+	var cmdSection string
+	if len(availableLines) > 0 {
+		sort.Strings(availableLines)
+		cmdSection = fmt.Sprintf(`## Project Commands (MCP)
 
 These MCP tools run on the host and are your primary way to build, test, and run the project:
 %s
 
 Use these instead of trying to run build/test commands directly in the container.
 
-Command output is saved to log files under `+"`"+`.cbox/logs/`+"`"+` in the worktree (e.g. `+"`"+`.cbox/logs/build.log`+"`"+`).
-The tool response contains the exit code and log path. On failure, the last 20 lines of
-output are included. To see full output, read the log file at `+"`"+`/workspace/.cbox/logs/<name>.log`+"`"+`.`, strings.Join(lines, "\n")))
+Each tool response includes the exit code and the most recent output inline (last 20 lines
+on success, last 40 lines on failure). Full logs are saved on the host for human operators.`, strings.Join(availableLines, "\n"))
+	} else {
+		cmdSection = `## Project Commands (MCP)
+
+No project commands are configured.`
 	}
+
+	if len(unavailableNames) > 0 {
+		sort.Strings(unavailableNames)
+		var notAvailLines []string
+		for _, name := range unavailableNames {
+			notAvailLines = append(notAvailLines, fmt.Sprintf("- cbox_%s is NOT available", name))
+		}
+		cmdSection += fmt.Sprintf(`
+
+The following well-known commands are not configured and must NOT be called:
+%s
+
+To add them, the user can define them in cbox.toml under [commands].`, strings.Join(notAvailLines, "\n"))
+	}
+
+	sections = append(sections, cmdSection)
 
 	// Exposed ports section
 	if len(ports) > 0 {
@@ -266,6 +307,7 @@ The following ports are mapped from this container to the host:
 
 These ports were configured via the `+"`ports`"+` field in cbox.toml.`, strings.Join(portLines, "\n")))
 	}
+
 
 	// Self-healing section
 	sections = append(sections, `## When something is missing
@@ -298,12 +340,13 @@ the user must rebuild: `+"`cbox up <branch> --rebuild`"+`
 host_commands = ["git", "gh", "bun"]
 `+"```"+`
 
-**Add or update project commands** — define build/test/run as MCP tools:
+**Add or update project commands** — define build/test/run/setup as MCP tools:
 `+"```toml"+`
 [commands]
 build = "go build ./..."
 test = "go test ./..."
 run = "go run ./cmd/myapp"
+setup = "go mod download"
 `+"```"+`
 
 **Use a custom Dockerfile** — bake runtimes or system packages into the container:
@@ -318,7 +361,13 @@ and references it in cbox.toml. This makes the tools available directly in the c
 		sections = append(sections, e)
 	}
 
-	claudeMD := strings.Join(sections, "\n\n") + "\n"
+	return strings.Join(sections, "\n\n") + "\n"
+}
+
+// InjectClaudeMD writes a system-level CLAUDE.md into the Claude container at
+// ~/.claude/CLAUDE.md so Claude Code understands the container environment.
+func InjectClaudeMD(claudeContainer string, hostCommands []string, namedCommands map[string]string, ports []string, extras ...string) error {
+	claudeMD := BuildClaudeMD(hostCommands, namedCommands, ports, extras...)
 
 	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/CLAUDE.md && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
@@ -354,12 +403,26 @@ func InjectMCPConfig(claudeContainer string, mcpPort int) error {
 }
 `, mcpPort)
 
-	writeCmd := "cat > /workspace/.mcp.json && chown claude:claude /workspace/.mcp.json"
+	writeCmd := "mkdir -p /home/claude/.claude && cat > /home/claude/.claude/.mcp.json && chown -R claude:claude /home/claude/.claude"
 	cmd := exec.Command("docker", "exec", "-i", claudeContainer, "sh", "-c", writeCmd)
 	cmd.Stdin = strings.NewReader(mcpConfig)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("writing .mcp.json: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// InjectFile writes arbitrary content to a path inside a running container.
+// Parent directories are created automatically and ownership is set to claude:claude.
+func InjectFile(container, path, content string) error {
+	dir := filepath.Dir(path)
+	writeCmd := fmt.Sprintf("mkdir -p %s && cat > %s && chown claude:claude %s", dir, path, path)
+	cmd := exec.Command("docker", "exec", "-i", container, "sh", "-c", writeCmd)
+	cmd.Stdin = strings.NewReader(content)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("writing %s: %s: %w", path, strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

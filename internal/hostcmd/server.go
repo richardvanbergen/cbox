@@ -40,6 +40,7 @@ type Server struct {
 	allowedCmds   map[string]bool
 	namedCommands map[string]string
 	reportDir     string
+	logDir        string // directory for command log files (defaults to <worktreePath>/.cbox/logs)
 	flow          *FlowConfig
 	listener      net.Listener
 	httpServer    *http.Server
@@ -61,6 +62,11 @@ func NewServer(worktreePath string, commands []string, namedCommands map[string]
 // SetReportDir enables the cbox_report tool and sets where reports are stored.
 func (s *Server) SetReportDir(dir string) {
 	s.reportDir = dir
+}
+
+// SetLogDir sets the directory where command log files are written.
+func (s *Server) SetLogDir(dir string) {
+	s.logDir = dir
 }
 
 // SetFlow enables flow-mode MCP tools (e.g. cbox_flow_pr).
@@ -220,9 +226,9 @@ func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
 }
 
 // makeNamedCommandHandler returns an MCP handler that runs the given shell expression.
-// Output is written to .cbox/logs/<name>.log and the response contains only the exit
-// code and log path. On failure the last 20 lines of output are included to speed up
-// error diagnosis.
+// Output is written to a log file on the host and the response includes inline output
+// (last 20 lines on success, last 40 lines on failure) so the inner Claude doesn't
+// need to read log files from the workspace.
 func (s *Server) makeNamedCommandHandler(name, expr string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
@@ -244,24 +250,23 @@ func (s *Server) makeNamedCommandHandler(name, expr string) server.ToolHandlerFu
 			}
 		}
 
-		// Write output to log file
-		logDir := filepath.Join(s.worktreePath, ".cbox", "logs")
-		if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("creating log dir: %v", mkErr)), nil
+		// Write output to log file for human operators
+		logDir := s.logDir
+		if logDir == "" {
+			logDir = filepath.Join(s.worktreePath, ".cbox", "logs")
 		}
-		logFile := filepath.Join(logDir, name+".log")
-		if wErr := os.WriteFile(logFile, output, 0644); wErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("writing log file: %v", wErr)), nil
+		if mkErr := os.MkdirAll(logDir, 0755); mkErr == nil {
+			logFile := filepath.Join(logDir, name+".log")
+			os.WriteFile(logFile, output, 0644) // best-effort
 		}
-
-		logPath := fmt.Sprintf(".cbox/logs/%s.log", name)
 
 		if exitCode != 0 {
-			tail := lastNLines(string(output), 20)
-			result := fmt.Sprintf("exit_code: %d\nlog: %s\n\n%s", exitCode, logPath, tail)
+			tail := lastNLines(string(output), 40)
+			result := fmt.Sprintf("exit_code: %d\n\n%s", exitCode, tail)
 			return mcp.NewToolResultError(result), nil
 		}
-		result := fmt.Sprintf("exit_code: 0\nlog: %s", logPath)
+		tail := lastNLines(string(output), 20)
+		result := fmt.Sprintf("exit_code: 0\n\n%s", tail)
 		return mcp.NewToolResultText(result), nil
 	}
 }

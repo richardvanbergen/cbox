@@ -174,11 +174,16 @@ func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd
 		return fmt.Errorf("writing task file: %w", err)
 	}
 
+	// Inject task file into the container at a path outside the workspace mount
+	if err := injectTaskFile(sandboxState.ClaudeContainer, tf); err != nil {
+		output.Warning("Could not inject task file into container: %v", err)
+	}
+
 	// Append workflow instructions to container's CLAUDE.md
 	taskInstruction := `
 ## CBox Flow — Task Assignment
 
-You are working inside a cbox flow. Read ` + "`/workspace/.cbox-task`" + ` for your task details.
+You are working inside a cbox flow. Read ` + "`/home/claude/.cbox-task`" + ` for your task details.
 
 ### Your responsibilities
 - Read the codebase, implement changes, write tests, and commit your work
@@ -306,6 +311,11 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 		output.Warning("Could not update task file: %v", err)
 	}
 
+	// Inject task file into the container at a path outside the workspace mount
+	if err := injectTaskFile(sandboxState.ClaudeContainer, tf); err != nil {
+		output.Warning("Could not inject task file into container: %v", err)
+	}
+
 	// Run open command only if --open flag was explicitly provided
 	if open := resolveOpenCommand(openFlag, openCmd, cfg.Open); open != "" {
 		if _, err := runShellCommand(open, map[string]string{"Dir": sandboxState.WorktreePath}); err != nil {
@@ -332,7 +342,7 @@ func FlowChat(projectDir, branch string, openFlag bool, openCmd string) error {
 	if !resume {
 		initialPrompt = `Do these two things before anything else:
 
-1. Read /workspace/.cbox-task and summarize the task.
+1. Read /home/claude/.cbox-task and summarize the task.
 2. Check your environment: what runtimes, tools, and commands are available? Try running the project's build and test commands via your MCP tools. If anything is missing or broken, warn me clearly about what's not working and what needs to be fixed before we can start.
 
 After reporting both, wait for my instructions.`
@@ -430,6 +440,9 @@ func FlowPR(projectDir, branch string) error {
 		}
 		if err := writeStructuredTaskFile(wtPath, existing); err != nil {
 			output.Warning("Could not update task file with PR info: %v", err)
+		}
+		if err := injectTaskFile(sandboxState.ClaudeContainer, existing); err != nil {
+			output.Warning("Could not inject updated task file into container: %v", err)
 		}
 	}
 

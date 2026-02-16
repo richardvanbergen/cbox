@@ -73,6 +73,11 @@ func (s *LineSpinner) Resolve(index int, status string) {
 // resolved or the returned stop function is called.
 func (s *LineSpinner) Run() {
 	s.mu.Lock()
+	// Nothing to display — return immediately to avoid blocking forever.
+	if len(s.lines) == 0 {
+		s.mu.Unlock()
+		return
+	}
 	// Hide cursor and save position before initial print
 	fmt.Fprintf(s.w, "\033[?25l\0337")
 	// Print all lines initially

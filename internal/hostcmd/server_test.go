@@ -221,12 +221,9 @@ func TestNamedCommandExecutes(t *testing.T) {
 	if !strings.Contains(content, "exit_code: 0") {
 		t.Errorf("expected exit_code: 0, got: %s", content)
 	}
-	if !strings.Contains(content, "log: .cbox/logs/test.log") {
-		t.Errorf("expected log path, got: %s", content)
-	}
-	// Output should NOT be inline in the response
-	if strings.Contains(content, "named-test-output") {
-		t.Errorf("expected output NOT inline in response, got: %s", content)
+	// Output should be inline in the response
+	if !strings.Contains(content, "named-test-output") {
+		t.Errorf("expected output inline in response, got: %s", content)
 	}
 }
 
@@ -242,20 +239,28 @@ func TestNamedCommandFailure(t *testing.T) {
 	if !strings.Contains(content, "exit_code: 1") {
 		t.Errorf("expected exit_code: 1, got: %s", content)
 	}
-	if !strings.Contains(content, "log: .cbox/logs/fail.log") {
-		t.Errorf("expected log path, got: %s", content)
-	}
 }
 
 func TestNamedCommandLogFileCreated(t *testing.T) {
 	dir := t.TempDir()
-	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
+	logDir := filepath.Join(t.TempDir(), "logs")
+	srv := NewServer(dir, nil, map[string]string{
 		"build": "echo log-file-test-output",
 	})
+	srv.SetLogDir(logDir)
+	port, err := srv.Start()
+	if err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() { srv.Stop() })
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
+	time.Sleep(50 * time.Millisecond)
+	initSession(t, url)
 
 	callNamedTool(t, url, "cbox_build")
 
-	logPath := filepath.Join(dir, ".cbox", "logs", "build.log")
+	logPath := filepath.Join(logDir, "build.log")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("expected log file at %s: %v", logPath, err)
@@ -267,8 +272,8 @@ func TestNamedCommandLogFileCreated(t *testing.T) {
 
 func TestNamedCommandFailureTail(t *testing.T) {
 	dir := t.TempDir()
-	// Generate 30 lines of output then fail — the response should contain only the last 20
-	expr := "for i in $(seq 1 30); do echo \"line-$i\"; done; exit 1"
+	// Generate 50 lines of output then fail — the response should contain only the last 40
+	expr := "for i in $(seq 1 50); do echo \"line-$i\"; done; exit 1"
 	url, _ := startTestServerWithNamedCommands(t, dir, nil, map[string]string{
 		"tailtest": expr,
 	})
@@ -279,9 +284,9 @@ func TestNamedCommandFailureTail(t *testing.T) {
 	if !strings.Contains(content, "exit_code: 1") {
 		t.Errorf("expected exit_code: 1, got: %s", content)
 	}
-	// Should contain the last lines (line-30, line-11) but not the first lines (line-1 through line-10)
-	if !strings.Contains(content, "line-30") {
-		t.Errorf("expected tail to contain 'line-30', got: %s", content)
+	// Should contain the last 40 lines (line-50, line-11) but not the first lines (line-1 through line-10)
+	if !strings.Contains(content, "line-50") {
+		t.Errorf("expected tail to contain 'line-50', got: %s", content)
 	}
 	if !strings.Contains(content, "line-11") {
 		t.Errorf("expected tail to contain 'line-11', got: %s", content)

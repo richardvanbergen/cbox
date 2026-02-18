@@ -634,10 +634,22 @@ func flowNewCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if yolo {
-				if len(args) == 0 {
-					return fmt.Errorf("description is required with --yolo")
+				var description string
+				if len(args) > 0 {
+					description = args[0]
+				} else {
+					cfg, _ := config.Load(projectDir())
+					var editorCfg string
+					if cfg != nil {
+						editorCfg = cfg.Editor
+					}
+					var err error
+					description, err = workflow.EditDescription(editorCfg)
+					if err != nil {
+						return err
+					}
 				}
-				return workflow.FlowNewYolo(projectDir(), args[0])
+				return workflow.FlowNewYolo(projectDir(), description)
 			}
 
 			var description string

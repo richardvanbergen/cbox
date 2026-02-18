@@ -614,6 +614,8 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowInitCmd())
 	cmd.AddCommand(flowNewCmd())
 	cmd.AddCommand(flowShapeCmd())
+	cmd.AddCommand(flowRunCmd())
+	cmd.AddCommand(flowOpenCmd())
 	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
 	cmd.AddCommand(flowCleanCmd())
@@ -669,6 +671,35 @@ func flowShapeCmd() *cobra.Command {
 		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowShape(projectDir(), args[0])
+		},
+	}
+}
+
+func flowRunCmd() *cobra.Command {
+	var yolo bool
+
+	cmd := &cobra.Command{
+		Use:               "run <branch>",
+		Short:             "Enter implementation mode — execute the plan",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowRun(projectDir(), args[0], yolo)
+		},
+	}
+
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run non-interactively (auto-execute the plan)")
+	return cmd
+}
+
+func flowOpenCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "open <branch>",
+		Short:             "Open the working directory in your editor/terminal",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowOpen(projectDir(), args[0], "")
 		},
 	}
 }

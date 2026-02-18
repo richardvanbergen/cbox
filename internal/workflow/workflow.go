@@ -462,6 +462,9 @@ func FlowPR(projectDir, branch string) error {
 		}
 	}
 
+	// Auto-advance task.json phase to verification if present
+	advanceTaskToVerification(wtPath, wf)
+
 	output.Success("PR created: %s", prURL)
 	output.Text("To merge: cbox flow merge %s", branch)
 	return nil

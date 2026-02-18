@@ -286,6 +286,17 @@ func ChatPrompt(projectDir, branch, prompt string) error {
 	return docker.ChatPrompt(state.ClaudeContainer, prompt)
 }
 
+// HasConversationHistory checks if Claude Code has any conversation history
+// for the sandbox on the given branch.
+func HasConversationHistory(projectDir, branch string) (bool, error) {
+	state, err := LoadState(projectDir, branch)
+	if err != nil {
+		return false, err
+	}
+
+	return docker.HasConversationHistory(state.ClaudeContainer)
+}
+
 // Shell opens an interactive shell in the Claude container.
 func Shell(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)

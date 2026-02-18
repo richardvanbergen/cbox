@@ -208,6 +208,30 @@ func TestBuildClaudeMD_SetupInHelpText(t *testing.T) {
 	}
 }
 
+// TestParseConversationList verifies parsing of claude conversation list output.
+func TestParseConversationList(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{"empty output", "", false},
+		{"empty array", "[]", false},
+		{"empty array with whitespace", "  []  \n", false},
+		{"has conversations", `[{"id":"abc123","title":"test"}]`, true},
+		{"whitespace with content", `  [{"id":"abc123"}]  `, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseConversationList([]byte(tt.output))
+			if got != tt.want {
+				t.Errorf("parseConversationList(%q) = %v, want %v", tt.output, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestStopAndRemoveNonExistent verifies that StopAndRemove returns nil when
 // the container does not exist (rather than leaking an error).
 func TestStopAndRemoveNonExistent(t *testing.T) {

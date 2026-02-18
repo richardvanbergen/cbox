@@ -145,21 +145,20 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("creating PR: %w", err)
 	}
 
-	// Save PR info to task
+	// Save PR info and advance to verification in one save
 	task.PRURL = prURL
 	task.PRNumber = prNumber
+	shouldAdvance := task.Phase != PhaseVerification && task.Phase != PhaseDone
+	if shouldAdvance {
+		task.Phase = PhaseVerification
+	}
 	if err := SaveTask(wtPath, task); err != nil {
-		output.Warning("Could not save PR info to task: %v", err)
+		output.Warning("Could not save task: %v", err)
 	}
 
-	// Advance to verification if not already there or past it
-	advanced := false
-	if task.Phase != PhaseVerification && task.Phase != PhaseDone {
-		if err := task.SetPhase(wtPath, PhaseVerification, wf); err != nil {
-			output.Warning("Could not advance task to verification: %v", err)
-		} else {
-			advanced = true
-		}
+	// Fire memory sync separately (best-effort)
+	if shouldAdvance {
+		syncMemory(task, wf)
 	}
 
 	if prExisted {
@@ -167,7 +166,7 @@ func FlowPR(projectDir, branch string) error {
 	} else {
 		output.Success("PR created: %s", prURL)
 	}
-	if advanced || task.Phase == PhaseVerification {
+	if task.Phase == PhaseVerification {
 		output.Text("Next: review the PR, then run 'cbox flow verify pass %s' or 'cbox flow verify fail %s --reason \"...\"'", branch, branch)
 	}
 	return nil

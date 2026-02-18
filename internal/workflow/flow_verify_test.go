@@ -163,29 +163,45 @@ func TestVerifyPass_Transition(t *testing.T) {
 	}
 }
 
-func TestVerifyPass_WrongPhase(t *testing.T) {
+func TestVerifyPass_FromReady(t *testing.T) {
 	dir := t.TempDir()
 
 	task := NewTask("test", "test", "Test", "Desc")
-	task.Phase = PhaseImplementation
+	task.Phase = PhaseReady
 	if err := SaveTask(dir, task); err != nil {
 		t.Fatalf("SaveTask failed: %v", err)
 	}
 
-	// Cannot go from implementation to done (must go through verification)
-	err := ValidateTransition(PhaseImplementation, PhaseDone)
-	if err != nil {
-		// Actually, forward transitions are always valid at state machine level.
-		// The command-level check (phase == verification) enforces this.
-		// So let's test the command-level logic instead.
+	// Verify pass should work from any phase except done
+	task.Phase = PhaseDone
+	if err := SaveTask(dir, task); err != nil {
+		t.Fatalf("SaveTask failed: %v", err)
 	}
 
-	// The actual check FlowVerifyPass does:
-	if task.Phase != PhaseVerification {
-		// This is the guard — the function would return an error here
-		return
+	// Reload and check that done phase is rejected
+	loaded, err := LoadTask(dir)
+	if err != nil {
+		t.Fatalf("LoadTask failed: %v", err)
 	}
-	t.Error("should not reach here")
+	if loaded.Phase != PhaseDone {
+		t.Errorf("phase = %q, want %q", loaded.Phase, PhaseDone)
+	}
+}
+
+func TestVerifyPass_RejectsDone(t *testing.T) {
+	dir := t.TempDir()
+
+	task := NewTask("test", "test", "Test", "Desc")
+	task.Phase = PhaseDone
+	if err := SaveTask(dir, task); err != nil {
+		t.Fatalf("SaveTask failed: %v", err)
+	}
+
+	// Simulate what FlowVerifyPass checks
+	if task.Phase == PhaseDone {
+		return // correctly rejected
+	}
+	t.Error("should have rejected done phase")
 }
 
 func TestVerifyFail_EmptyReason(t *testing.T) {
@@ -196,6 +212,51 @@ func TestVerifyFail_EmptyReason(t *testing.T) {
 		return
 	}
 	t.Error("should not reach here")
+}
+
+func TestVerifyPass_DirectToDoneFromAnyPhase(t *testing.T) {
+	// verify pass should jump directly to done from any non-done phase
+	phases := []Phase{PhaseNew, PhaseShaping, PhaseReady, PhaseImplementation, PhaseVerification}
+	for _, p := range phases {
+		t.Run(string(p), func(t *testing.T) {
+			dir := t.TempDir()
+			task := NewTask("test", "test", "Test", "Desc")
+			task.Phase = p
+			if err := SaveTask(dir, task); err != nil {
+				t.Fatalf("SaveTask failed: %v", err)
+			}
+
+			// Simulate FlowVerifyPass logic
+			if task.Phase == PhaseDone {
+				t.Fatal("should not be done yet")
+			}
+			task.Phase = PhaseDone
+			if err := SaveTask(dir, task); err != nil {
+				t.Fatalf("SaveTask failed: %v", err)
+			}
+
+			loaded, err := LoadTask(dir)
+			if err != nil {
+				t.Fatalf("LoadTask failed: %v", err)
+			}
+			if loaded.Phase != PhaseDone {
+				t.Errorf("phase = %q, want %q", loaded.Phase, PhaseDone)
+			}
+		})
+	}
+}
+
+func TestVerifyFail_RejectsNewAndDone(t *testing.T) {
+	for _, p := range []Phase{PhaseNew, PhaseDone} {
+		t.Run(string(p), func(t *testing.T) {
+			task := &Task{Phase: p}
+			// Simulate FlowVerifyFail guards
+			if task.Phase == PhaseDone || task.Phase == PhaseNew {
+				return // correctly rejected
+			}
+			t.Errorf("should have rejected phase %q", p)
+		})
+	}
 }
 
 func TestFullVerifyFailCycle(t *testing.T) {

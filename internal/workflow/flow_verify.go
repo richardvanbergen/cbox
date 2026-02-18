@@ -10,6 +10,7 @@ import (
 )
 
 // FlowVerifyPass marks the task as verified and advances to done.
+// Accepts tasks in any phase except "done" — the user is the final authority.
 func FlowVerifyPass(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -27,13 +28,16 @@ func FlowVerifyPass(projectDir, branch string) error {
 		return fmt.Errorf("loading task: %w", err)
 	}
 
-	if task.Phase != PhaseVerification {
-		return fmt.Errorf("task is in phase %q — verify is only available in 'verification' phase", task.Phase)
+	if task.Phase == PhaseDone {
+		return fmt.Errorf("task is already done")
 	}
 
-	if err := task.SetPhase(wtPath, PhaseDone, cfg.Workflow); err != nil {
-		return fmt.Errorf("advancing to done: %w", err)
+	// Jump directly to done — skip intermediate phases
+	task.Phase = PhaseDone
+	if err := SaveTask(wtPath, task); err != nil {
+		return fmt.Errorf("saving task: %w", err)
 	}
+	syncMemory(task, cfg.Workflow)
 
 	output.Success("Task verified. Run 'cbox flow merge %s' to merge the PR.", branch)
 	return nil
@@ -41,6 +45,7 @@ func FlowVerifyPass(projectDir, branch string) error {
 
 // FlowVerifyFail records a verification failure and sends the task back
 // to implementation. The reason is required.
+// Accepts tasks in any phase except "new" and "done".
 func FlowVerifyFail(projectDir, branch, reason string) error {
 	if reason == "" {
 		return fmt.Errorf("reason is required — use --reason to explain what needs fixing")
@@ -62,8 +67,11 @@ func FlowVerifyFail(projectDir, branch, reason string) error {
 		return fmt.Errorf("loading task: %w", err)
 	}
 
-	if task.Phase != PhaseVerification {
-		return fmt.Errorf("task is in phase %q — verify is only available in 'verification' phase", task.Phase)
+	if task.Phase == PhaseDone {
+		return fmt.Errorf("task is already done — cannot fail verification")
+	}
+	if task.Phase == PhaseNew {
+		return fmt.Errorf("task has not started yet — nothing to verify")
 	}
 
 	// Record the failure
@@ -72,10 +80,12 @@ func FlowVerifyFail(projectDir, branch, reason string) error {
 		Timestamp: time.Now(),
 	})
 
-	// Move back to implementation
-	if err := task.SetPhase(wtPath, PhaseImplementation, cfg.Workflow); err != nil {
-		return fmt.Errorf("moving back to implementation: %w", err)
+	// Jump directly to implementation
+	task.Phase = PhaseImplementation
+	if err := SaveTask(wtPath, task); err != nil {
+		return fmt.Errorf("saving task: %w", err)
 	}
+	syncMemory(task, cfg.Workflow)
 
 	output.Warning("Verification failed: %s", reason)
 	output.Text("Task moved back to implementation. Run 'cbox flow run %s' to address the issues.", branch)

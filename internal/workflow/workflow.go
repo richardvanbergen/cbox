@@ -329,6 +329,9 @@ func FlowStatus(projectDir, branch string) error {
 			return fmt.Errorf("no flow found for branch %q", branch)
 		}
 		PrintTaskStatus(task)
+		if sandboxState.ServeURL != "" {
+			output.Text("Serve URL:   %s", sandboxState.ServeURL)
+		}
 		return nil
 	}
 
@@ -339,8 +342,9 @@ func FlowStatus(projectDir, branch string) error {
 	}
 
 	type statusLine struct {
-		task    *Task
-		needsPR bool
+		task     *Task
+		needsPR  bool
+		serveURL string
 	}
 
 	var lines []statusLine
@@ -350,7 +354,7 @@ func FlowStatus(projectDir, branch string) error {
 			continue // sandbox without task.json — not a managed flow
 		}
 		needsPR := task.PRNumber != "" && wf != nil && wf.PR != nil && wf.PR.View != ""
-		lines = append(lines, statusLine{task: task, needsPR: needsPR})
+		lines = append(lines, statusLine{task: task, needsPR: needsPR, serveURL: ss.ServeURL})
 	}
 
 	if len(lines) == 0 {
@@ -370,7 +374,11 @@ func FlowStatus(projectDir, branch string) error {
 	// If no flows need PR status, just print them directly
 	if !anyNeedsPR {
 		for _, l := range lines {
-			output.Text("%-30s %-15s %s", l.task.Branch, l.task.Phase, l.task.Title)
+			line := fmt.Sprintf("%-30s %-15s %s", l.task.Branch, l.task.Phase, l.task.Title)
+			if l.serveURL != "" {
+				line += fmt.Sprintf("  %s", l.serveURL)
+			}
+			output.Text("%s", line)
 		}
 		return nil
 	}
@@ -378,7 +386,11 @@ func FlowStatus(projectDir, branch string) error {
 	// Show all flows with spinners, fetch PR status concurrently
 	spinner := output.NewLineSpinner(len(lines))
 	for i, l := range lines {
-		spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", l.task.Branch, l.task.Title))
+		suffix := l.task.Title
+		if l.serveURL != "" {
+			suffix += fmt.Sprintf("  %s", l.serveURL)
+		}
+		spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", l.task.Branch, suffix))
 		if !l.needsPR {
 			spinner.Resolve(i, fmt.Sprintf("%-15s", l.task.Phase))
 		}

@@ -62,7 +62,12 @@ func FlowInit(projectDir string) error {
 // FlowStart begins a new workflow: creates issue, sandbox, writes task file, and sets up context.
 // If openFlag is true, the open command runs after the sandbox is ready. openCmd overrides the
 // config default; when openCmd is empty the value from cfg.Open is used.
+//
+// Deprecated: Use 'cbox flow new' + 'cbox flow shape' + 'cbox flow run' instead.
 func FlowStart(projectDir, description string, yolo bool, openFlag bool, openCmd string) error {
+	output.Warning("'cbox flow start' is deprecated. Use 'cbox flow new' to create a task, then 'cbox flow shape' and 'cbox flow run'.")
+	fmt.Println()
+
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -351,19 +356,18 @@ After reporting both, wait for my instructions.`
 	return sandbox.Chat(projectDir, branch, chrome, initialPrompt, resume)
 }
 
-// FlowPR creates a pull request for the flow.
+// FlowPR creates a pull request for the flow. Works with both old-style
+// (FlowState) and new-style (Task-based) flows.
 func FlowPR(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
 	}
 
-	state, err := LoadFlowState(projectDir, branch)
-	if err != nil {
-		return err
-	}
+	// Try to load old-style flow state (may not exist for new-style flows)
+	state, _ := LoadFlowState(projectDir, branch)
 
-	if state.Phase == "done" || state.Phase == "abandoned" {
+	if state != nil && (state.Phase == "done" || state.Phase == "abandoned") {
 		return fmt.Errorf("flow is in %q phase — cannot create PR", state.Phase)
 	}
 
@@ -380,21 +384,40 @@ func FlowPR(projectDir, branch string) error {
 	}
 	wtPath := sandboxState.WorktreePath
 
-	// Build PR description from reports
+	// Determine title and description from best available source
+	var title, description string
+
+	// Try task.json first (new-style)
+	if task, taskErr := LoadTask(wtPath); taskErr == nil {
+		title = task.Title
+		description = task.Description
+	}
+
+	// Build PR description from reports (overrides task description if available)
 	repDir := reportDir(projectDir, branch)
 	reports, _ := hostcmd.LoadReports(repDir)
-
-	var description string
 	for _, r := range reports {
 		if r.Type == "done" {
 			description = r.Body
 		}
 	}
-	if description == "" {
-		description = state.Description
+
+	// Fall back to old flow state
+	if state != nil {
+		if title == "" {
+			title = state.Title
+		}
+		if description == "" {
+			description = state.Description
+		}
+	}
+
+	// Last resort
+	if title == "" {
+		title = branch
 	}
 	if description == "" {
-		description = state.Title
+		description = title
 	}
 
 	// Push the branch first
@@ -411,7 +434,7 @@ func FlowPR(projectDir, branch string) error {
 	if err := output.Spin("Creating PR", func() error {
 		var prErr error
 		prOutput, prErr = runShellCommandInDir(wf.PR.Create, map[string]string{
-			"Title":       state.Title,
+			"Title":       title,
 			"Description": description,
 		}, wtPath)
 		return prErr
@@ -425,10 +448,13 @@ func FlowPR(projectDir, branch string) error {
 		prURL = prOutput
 	}
 
-	state.PRURL = prURL
-	state.PRNumber = prNumber
-	if err := SaveFlowState(projectDir, state); err != nil {
-		return fmt.Errorf("saving flow state: %w", err)
+	// Save PR info to flow state if it exists
+	if state != nil {
+		state.PRURL = prURL
+		state.PRNumber = prNumber
+		if err := SaveFlowState(projectDir, state); err != nil {
+			return fmt.Errorf("saving flow state: %w", err)
+		}
 	}
 
 	// Update task file with PR info
@@ -446,8 +472,8 @@ func FlowPR(projectDir, branch string) error {
 		}
 	}
 
-	// Update issue status and comment with PR link
-	if state.IssueID != "" && wf.Issue != nil {
+	// Update issue status and comment with PR link (old-style flows only)
+	if state != nil && state.IssueID != "" && wf.Issue != nil {
 		if wf.Issue.SetStatus != "" {
 			runShellCommand(wf.Issue.SetStatus, map[string]string{
 				"IssueID": state.IssueID,
@@ -470,24 +496,29 @@ func FlowPR(projectDir, branch string) error {
 	return nil
 }
 
-// FlowMerge merges the PR and cleans up.
+// FlowMerge merges the PR and cleans up. Works with both old-style
+// (FlowState) and new-style (Task-based) flows.
 func FlowMerge(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
 	}
 
-	state, err := LoadFlowState(projectDir, branch)
-	if err != nil {
-		return err
-	}
-
 	wf := cfg.Workflow
+
+	// Try to load old-style flow state
+	state, _ := LoadFlowState(projectDir, branch)
 
 	// Require a PR before allowing merge — without this check, merge
 	// would clean up the sandbox and destroy uncommitted work.
-	if state.PRURL == "" {
+	if state != nil && state.PRURL == "" {
 		return fmt.Errorf("no PR has been created for branch %q — run `cbox flow pr %s` first", branch, branch)
+	}
+	if state == nil {
+		// New-style flow — verify sandbox exists
+		if _, sandboxErr := sandbox.LoadState(projectDir, branch); sandboxErr != nil {
+			return fmt.Errorf("no flow found for branch %q", branch)
+		}
 	}
 
 	// Enforce verification gate if task.json exists
@@ -499,7 +530,7 @@ func FlowMerge(projectDir, branch string) error {
 	}
 
 	// Merge PR
-	if wf != nil && wf.PR != nil && wf.PR.Merge != "" {
+	if state != nil && wf != nil && wf.PR != nil && wf.PR.Merge != "" {
 		prNumber := state.PRNumber
 		if prNumber == "" {
 			// Fallback: extract from URL for old state files
@@ -516,12 +547,14 @@ func FlowMerge(projectDir, branch string) error {
 		}); err != nil {
 			return fmt.Errorf("merging PR: %w", err)
 		}
+	} else if state == nil {
+		output.Warning("No flow state found — merge PR manually if needed.")
 	} else {
 		output.Warning("No PR merge command configured — merge manually.")
 	}
 
 	// Update and close issue
-	if state.IssueID != "" && wf != nil && wf.Issue != nil {
+	if state != nil && state.IssueID != "" && wf != nil && wf.Issue != nil {
 		if wf.Issue.SetStatus != "" {
 			runShellCommand(wf.Issue.SetStatus, map[string]string{
 				"IssueID": state.IssueID,
@@ -547,7 +580,6 @@ func FlowMerge(projectDir, branch string) error {
 	repDir := reportDir(projectDir, branch)
 	os.RemoveAll(repDir)
 
-	state.Phase = "done"
 	output.Success("Flow complete.")
 	return nil
 }
@@ -578,7 +610,8 @@ func fetchPRStatus(wf *config.WorkflowConfig, state *FlowState) (*PRStatus, erro
 	return status, nil
 }
 
-// FlowStatus shows the status of active flows.
+// FlowStatus shows the status of active flows. Displays both old-style
+// (FlowState) and new-style (Task-based) flows.
 func FlowStatus(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -586,67 +619,112 @@ func FlowStatus(projectDir, branch string) error {
 	}
 
 	wf := cfg.Workflow
-	if wf == nil || wf.PR == nil || wf.PR.View == "" {
-		return fmt.Errorf("no pr.view command configured — add [workflow.pr] view to %s", config.ConfigFile)
-	}
 
 	if branch != "" {
-		state, err := LoadFlowState(projectDir, branch)
-		if err != nil {
-			return err
+		// Single-branch status: try old-style first, fall back to new-style
+		state, stateErr := LoadFlowState(projectDir, branch)
+		if stateErr == nil {
+			if wf == nil || wf.PR == nil || wf.PR.View == "" {
+				// No PR view configured — print without PR fetch
+				printFlowState(projectDir, wf, state)
+			} else {
+				printFlowState(projectDir, wf, state)
+			}
+			return nil
 		}
-		printFlowState(projectDir, wf, state)
+
+		// Try new-style flow (Task-based)
+		sandboxState, sandboxErr := sandbox.LoadState(projectDir, branch)
+		if sandboxErr != nil {
+			return fmt.Errorf("no flow found for branch %q", branch)
+		}
+		task, taskErr := LoadTask(sandboxState.WorktreePath)
+		if taskErr != nil {
+			return fmt.Errorf("no flow found for branch %q", branch)
+		}
+		PrintTaskStatus(task)
 		return nil
 	}
 
-	states, err := ListFlowStates(projectDir)
-	if err != nil {
-		return err
+	// List all flows (old + new style)
+	type statusLine struct {
+		branch string
+		phase  string
+		title  string
+		// old-style only
+		state   *FlowState
+		needsPR bool
 	}
 
-	if len(states) == 0 {
+	seen := make(map[string]bool)
+	var lines []statusLine
+
+	// Collect old-style flows
+	states, _ := ListFlowStates(projectDir)
+	for _, s := range states {
+		seen[s.Branch] = true
+		needsPR := s.PRNumber != "" && wf != nil && wf.PR != nil && wf.PR.View != ""
+		lines = append(lines, statusLine{
+			branch:  s.Branch,
+			phase:   s.Phase,
+			title:   s.Title,
+			state:   s,
+			needsPR: needsPR,
+		})
+	}
+
+	// Collect new-style flows (sandbox-based with task.json)
+	sandboxStates, _ := sandbox.ListStates(projectDir)
+	for _, ss := range sandboxStates {
+		if seen[ss.Branch] {
+			continue // already listed as old-style
+		}
+		task, taskErr := LoadTask(ss.WorktreePath)
+		if taskErr != nil {
+			continue // sandbox without task.json — not a managed flow
+		}
+		lines = append(lines, statusLine{
+			branch: ss.Branch,
+			phase:  string(task.Phase),
+			title:  task.Title,
+		})
+	}
+
+	if len(lines) == 0 {
 		output.Text("No active flows.")
 		return nil
 	}
 
-	// Determine which flows need a PR status fetch
-	type flowLine struct {
-		state    *FlowState
-		needsPR  bool
-	}
-	flowLines := make([]flowLine, len(states))
+	// Check if any need PR status fetch
 	anyNeedsPR := false
-	for i, s := range states {
-		needsPR := s.PRNumber != ""
-		flowLines[i] = flowLine{state: s, needsPR: needsPR}
-		if needsPR {
+	for _, l := range lines {
+		if l.needsPR {
 			anyNeedsPR = true
+			break
 		}
 	}
 
 	// If no flows need PR status, just print them directly
 	if !anyNeedsPR {
-		for _, fl := range flowLines {
-			output.Text("%-30s %-15s %s", fl.state.Branch, fl.state.Phase, fl.state.Title)
+		for _, l := range lines {
+			output.Text("%-30s %-15s %s", l.branch, l.phase, l.title)
 		}
 		return nil
 	}
 
 	// Show all flows with spinners, fetch PR status concurrently
-	spinner := output.NewLineSpinner(len(flowLines))
-	for i, fl := range flowLines {
-		if fl.needsPR {
-			spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", fl.state.Branch, fl.state.Title))
-		} else {
-			spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", fl.state.Branch, fl.state.Title))
-			spinner.Resolve(i, fmt.Sprintf("%-15s", fl.state.Phase))
+	spinner := output.NewLineSpinner(len(lines))
+	for i, l := range lines {
+		spinner.SetLine(i, fmt.Sprintf("%-30s %%s  %s", l.branch, l.title))
+		if !l.needsPR {
+			spinner.Resolve(i, fmt.Sprintf("%-15s", l.phase))
 		}
 	}
 
 	// Fetch PR statuses concurrently
 	var wg sync.WaitGroup
-	for i, fl := range flowLines {
-		if !fl.needsPR {
+	for i, l := range lines {
+		if !l.needsPR {
 			continue
 		}
 		wg.Add(1)
@@ -658,10 +736,9 @@ func FlowStatus(projectDir, branch string) error {
 				phase = formatPRPhase(prStatus)
 			}
 			spinner.Resolve(idx, fmt.Sprintf("%-15s", phase))
-		}(i, fl.state)
+		}(i, l.state)
 	}
 
-	// Run spinner in a goroutine, wait for all fetches, then wait for spinner
 	go func() {
 		wg.Wait()
 	}()
@@ -869,22 +946,28 @@ func printFlowState(projectDir string, wf *config.WorkflowConfig, s *FlowState) 
 	}
 }
 
-// FlowAbandon cancels a flow and cleans up.
+// FlowAbandon cancels a flow and cleans up. Works with both old-style
+// (FlowState) and new-style (Task-based) flows.
 func FlowAbandon(projectDir, branch string) error {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
 		return err
 	}
 
-	state, err := LoadFlowState(projectDir, branch)
-	if err != nil {
-		return err
-	}
-
 	wf := cfg.Workflow
 
-	// Close and label the issue
-	if state.IssueID != "" && wf != nil && wf.Issue != nil {
+	// Try to load old-style flow state
+	state, stateErr := LoadFlowState(projectDir, branch)
+
+	// If no FlowState, check if a sandbox exists (new-style flow)
+	if stateErr != nil {
+		if _, sandboxErr := sandbox.LoadState(projectDir, branch); sandboxErr != nil {
+			return fmt.Errorf("no flow found for branch %q", branch)
+		}
+	}
+
+	// Close and label the issue (old-style flows only)
+	if state != nil && state.IssueID != "" && wf != nil && wf.Issue != nil {
 		if wf.Issue.SetStatus != "" {
 			runShellCommand(wf.Issue.SetStatus, map[string]string{
 				"IssueID": state.IssueID,
@@ -910,6 +993,10 @@ func FlowAbandon(projectDir, branch string) error {
 	repDir := reportDir(projectDir, branch)
 	os.RemoveAll(repDir)
 
-	output.Success("Flow '%s' abandoned.", state.Title)
+	title := branch
+	if state != nil && state.Title != "" {
+		title = state.Title
+	}
+	output.Success("Flow '%s' abandoned.", title)
 	return nil
 }

@@ -120,6 +120,7 @@ func sandboxCompletion() func(*cobra.Command, []string, string) ([]string, cobra
 }
 
 // flowCompletion returns a completion function that suggests existing flow branches.
+// It merges branches from both old-style FlowState files and sandbox states.
 func flowCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -131,15 +132,28 @@ func flowCompletion() func(*cobra.Command, []string, string) ([]string, cobra.Sh
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		states, err := workflow.ListFlowStates(dir)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
+		seen := make(map[string]bool)
+
+		// Old-style flows (FlowState files)
+		flowStates, _ := workflow.ListFlowStates(dir)
+		for _, s := range flowStates {
+			if s.Branch != "" {
+				seen[s.Branch] = true
+			}
+		}
+
+		// New-style flows (sandbox states)
+		sandboxStates, _ := sandbox.ListStates(dir)
+		for _, s := range sandboxStates {
+			if s.Branch != "" {
+				seen[s.Branch] = true
+			}
 		}
 
 		var completions []string
-		for _, s := range states {
-			if s.Branch != "" && strings.HasPrefix(s.Branch, toComplete) {
-				completions = append(completions, s.Branch)
+		for branch := range seen {
+			if strings.HasPrefix(branch, toComplete) {
+				completions = append(completions, branch)
 			}
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
@@ -711,8 +725,9 @@ func flowStartCmd() *cobra.Command {
 	var openCmd string
 
 	cmd := &cobra.Command{
-		Use:   "start",
-		Short: "Begin a new workflow: create issue and sandbox",
+		Use:        "start",
+		Short:      "Begin a new workflow: create issue and sandbox",
+		Deprecated: "use 'cbox flow new' + 'cbox flow shape' + 'cbox flow run' instead",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if description == "" {

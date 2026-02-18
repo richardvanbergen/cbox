@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "slug": "add-hello-workflow-test",
+  "branch": "add-hello-workflow-test",
+  "title": "Add hello command for workflow testing",
+  "description": "Implement a new `cbox hello` command that provides a simple way to test and verify the CBox workflow system. This command should output a greeting message and demonstrate successful command execution, useful for validating that the CLI is functioning properly and the workflow integration is working as expected.",
+  "phase": "ready",
+  "container": "cbox-cbox-add-hello-workflow-test-claude",
+  "plan": ".cbox/plan.md",
+  "memory_ref": "116",
+  "created_at": "2026-02-18T14:59:45.716325+09:00",
+  "updated_at": "2026-02-18T15:06:05.082906+09:00"
+}

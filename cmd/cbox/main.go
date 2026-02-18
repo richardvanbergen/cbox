@@ -626,11 +626,20 @@ func flowInitCmd() *cobra.Command {
 }
 
 func flowNewCmd() *cobra.Command {
-	return &cobra.Command{
+	var yolo bool
+
+	cmd := &cobra.Command{
 		Use:   "new [description]",
 		Short: "Bootstrap a new task (container + branch + description)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if yolo {
+				if len(args) == 0 {
+					return fmt.Errorf("description is required with --yolo")
+				}
+				return workflow.FlowNewYolo(projectDir(), args[0])
+			}
+
 			var description string
 			if len(args) > 0 {
 				description = args[0]
@@ -649,6 +658,9 @@ func flowNewCmd() *cobra.Command {
 			return workflow.FlowNew(projectDir(), description)
 		},
 	}
+
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Skip shaping — auto-plan, implement, and create PR")
+	return cmd
 }
 
 func flowShapeCmd() *cobra.Command {

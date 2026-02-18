@@ -162,6 +162,51 @@ func TestLineSpinner_ZeroLines(t *testing.T) {
 	}
 }
 
+func TestLineSpinner_StopBeforeAllResolved(t *testing.T) {
+	spinner := NewLineSpinner(2)
+	spinner.SetLine(0, "a %s")
+	spinner.SetLine(1, "b %s")
+	// Only resolve one line — the other is still spinning
+	spinner.Resolve(0, "ok")
+
+	var buf bytes.Buffer
+	spinner.w = &buf
+
+	done := make(chan struct{})
+	go func() {
+		spinner.Run()
+		close(done)
+	}()
+
+	// Stop the spinner before all lines resolve
+	spinner.Stop()
+	<-done
+
+	out := buf.String()
+	// Must still emit cursor-show at the end
+	if !strings.HasSuffix(out, "\033[?25h") {
+		t.Errorf("expected cursor show after Stop(), got: %q", out)
+	}
+	// Must contain the resolved line
+	if !strings.Contains(out, "a ok") {
+		t.Errorf("expected resolved line a, got: %q", out)
+	}
+}
+
+func TestLineSpinner_StopIdempotent(t *testing.T) {
+	spinner := NewLineSpinner(1)
+	spinner.SetLine(0, "x %s")
+	spinner.Resolve(0, "done")
+
+	var buf bytes.Buffer
+	spinner.w = &buf
+	spinner.Run()
+
+	// Calling Stop after Run has already returned should not panic
+	spinner.Stop()
+	spinner.Stop()
+}
+
 func TestSpin_Success(t *testing.T) {
 	var buf bytes.Buffer
 	err := spinTo(&buf, "Doing work", func() error {

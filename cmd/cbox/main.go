@@ -612,6 +612,7 @@ func flowCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(flowInitCmd())
+	cmd.AddCommand(flowNewCmd())
 	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
 	cmd.AddCommand(flowCleanCmd())
@@ -629,6 +630,32 @@ func flowInitCmd() *cobra.Command {
 		Short: "Add default workflow config to cbox.toml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowInit(projectDir())
+		},
+	}
+}
+
+func flowNewCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "new [description]",
+		Short: "Bootstrap a new task (container + branch + description)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var description string
+			if len(args) > 0 {
+				description = args[0]
+			} else {
+				cfg, _ := config.Load(projectDir())
+				var editorCfg string
+				if cfg != nil {
+					editorCfg = cfg.Editor
+				}
+				var err error
+				description, err = workflow.EditDescription(editorCfg)
+				if err != nil {
+					return err
+				}
+			}
+			return workflow.FlowNew(projectDir(), description)
 		},
 	}
 }

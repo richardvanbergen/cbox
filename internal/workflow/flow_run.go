@@ -148,18 +148,20 @@ func buildImplementationPrompt(task *Task, yolo bool) string {
 
 // advanceTaskToVerification checks for a task.json in the worktree and
 // advances the phase from implementation to verification.
-// Called after a PR is successfully created.
-func advanceTaskToVerification(wtPath string, wf *config.WorkflowConfig) {
+// Called after a PR is successfully created. Returns true if advanced.
+func advanceTaskToVerification(wtPath string, wf *config.WorkflowConfig) bool {
 	task, err := LoadTask(wtPath)
 	if err != nil {
-		return // no task.json — old-style flow, skip
+		return false // no task.json — old-style flow, skip
 	}
 	if task.Phase != PhaseImplementation {
-		return // not in implementation — skip
+		return false // not in implementation — skip
 	}
 	if err := task.SetPhase(wtPath, PhaseVerification, wf); err != nil {
 		output.Warning("Could not advance task to verification: %v", err)
+		return false
 	}
+	return true
 }
 
 // planExists checks if a plan file exists in the worktree.

@@ -72,10 +72,14 @@ type Task struct {
 	Container      string          `json:"container,omitempty"`
 	Plan           string          `json:"plan,omitempty"`
 	MemoryRef      string          `json:"memory_ref,omitempty"`
+	PRURL          string          `json:"pr_url,omitempty"`
+	PRNumber       string          `json:"pr_number,omitempty"`
 	VerifyFailures []VerifyFailure `json:"verify_failures,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
+
+const stateDir = ".cbox"
 
 const taskJSONFile = "task.json"
 
@@ -254,6 +258,9 @@ func PrintTaskStatus(t *Task) {
 	}
 	if t.MemoryRef != "" {
 		output.Text("Issue:       #%s", t.MemoryRef)
+	}
+	if t.PRURL != "" {
+		output.Text("PR:          %s", t.PRURL)
 	}
 	if len(t.VerifyFailures) > 0 {
 		output.Text("Verify failures: %d", len(t.VerifyFailures))

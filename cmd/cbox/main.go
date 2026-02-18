@@ -613,6 +613,7 @@ func flowCmd() *cobra.Command {
 
 	cmd.AddCommand(flowInitCmd())
 	cmd.AddCommand(flowNewCmd())
+	cmd.AddCommand(flowShapeCmd())
 	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
 	cmd.AddCommand(flowCleanCmd())
@@ -656,6 +657,18 @@ func flowNewCmd() *cobra.Command {
 				}
 			}
 			return workflow.FlowNew(projectDir(), description)
+		},
+	}
+}
+
+func flowShapeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "shape <branch>",
+		Short:             "Enter shaping mode — collaboratively plan the task",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowShape(projectDir(), args[0])
 		},
 	}
 }

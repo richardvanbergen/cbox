@@ -490,6 +490,14 @@ func FlowMerge(projectDir, branch string) error {
 		return fmt.Errorf("no PR has been created for branch %q — run `cbox flow pr %s` first", branch, branch)
 	}
 
+	// Enforce verification gate if task.json exists
+	sandboxState, sandboxErr := sandbox.LoadState(projectDir, branch)
+	if sandboxErr == nil {
+		if err := checkMergeGate(sandboxState.WorktreePath); err != nil {
+			return err
+		}
+	}
+
 	// Merge PR
 	if wf != nil && wf.PR != nil && wf.PR.Merge != "" {
 		prNumber := state.PRNumber

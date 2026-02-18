@@ -622,6 +622,7 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowChatCmd())
 	cmd.AddCommand(flowPRCmd())
 	cmd.AddCommand(flowMergeCmd())
+	cmd.AddCommand(flowVerifyCmd())
 	cmd.AddCommand(flowAbandonCmd())
 
 	return cmd
@@ -806,6 +807,48 @@ func flowMergeCmd() *cobra.Command {
 			return workflow.FlowMerge(projectDir(), args[0])
 		},
 	}
+}
+
+func flowVerifyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify task results (pass or fail)",
+	}
+
+	cmd.AddCommand(flowVerifyPassCmd())
+	cmd.AddCommand(flowVerifyFailCmd())
+
+	return cmd
+}
+
+func flowVerifyPassCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "pass <branch>",
+		Short:             "Mark the task as verified and advance to done",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowVerifyPass(projectDir(), args[0])
+		},
+	}
+}
+
+func flowVerifyFailCmd() *cobra.Command {
+	var reason string
+
+	cmd := &cobra.Command{
+		Use:               "fail <branch>",
+		Short:             "Record a verification failure and return to implementation",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowVerifyFail(projectDir(), args[0], reason)
+		},
+	}
+
+	cmd.Flags().StringVar(&reason, "reason", "", "Reason for verification failure (required)")
+	cmd.MarkFlagRequired("reason")
+	return cmd
 }
 
 func flowAbandonCmd() *cobra.Command {

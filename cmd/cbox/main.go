@@ -130,7 +130,7 @@ func flowCompletion() func(*cobra.Command, []string, string) ([]string, cobra.Sh
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		states, err := workflow.ListFlowStates(dir)
+		states, err := sandbox.ListStates(dir)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -601,12 +601,15 @@ func flowCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(flowInitCmd())
-	cmd.AddCommand(flowStartCmd())
+	cmd.AddCommand(flowNewCmd())
+	cmd.AddCommand(flowShapeCmd())
+	cmd.AddCommand(flowRunCmd())
+	cmd.AddCommand(flowOpenCmd())
 	cmd.AddCommand(flowStatusCmd())
 	cmd.AddCommand(flowCleanCmd())
-	cmd.AddCommand(flowChatCmd())
 	cmd.AddCommand(flowPRCmd())
 	cmd.AddCommand(flowMergeCmd())
+	cmd.AddCommand(flowVerifyCmd())
 	cmd.AddCommand(flowAbandonCmd())
 
 	return cmd
@@ -622,17 +625,16 @@ func flowInitCmd() *cobra.Command {
 	}
 }
 
-func flowStartCmd() *cobra.Command {
-	var description string
-	var yolo bool
-	var openCmd string
-
-	cmd := &cobra.Command{
-		Use:   "start",
-		Short: "Begin a new workflow: create issue and sandbox",
-		Args:  cobra.NoArgs,
+func flowNewCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "new [description]",
+		Short: "Bootstrap a new task (container + branch + description)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if description == "" {
+			var description string
+			if len(args) > 0 {
+				description = args[0]
+			} else {
 				cfg, _ := config.Load(projectDir())
 				var editorCfg string
 				if cfg != nil {
@@ -644,16 +646,50 @@ func flowStartCmd() *cobra.Command {
 					return err
 				}
 			}
-			openFlag := cmd.Flags().Changed("open")
-			return workflow.FlowStart(projectDir(), description, yolo, openFlag, openCmd)
+			return workflow.FlowNew(projectDir(), description)
+		},
+	}
+}
+
+func flowShapeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "shape <branch>",
+		Short:             "Enter shaping mode — collaboratively plan the task",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowShape(projectDir(), args[0])
+		},
+	}
+}
+
+func flowRunCmd() *cobra.Command {
+	var yolo bool
+
+	cmd := &cobra.Command{
+		Use:               "run <branch>",
+		Short:             "Enter implementation mode — execute the plan",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowRun(projectDir(), args[0], yolo)
 		},
 	}
 
-	cmd.Flags().StringVarP(&description, "description", "d", "", "Flow description (opens editor if omitted)")
-	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
-	cmd.Flags().Lookup("open").NoOptDefVal = " "
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run non-interactively (auto-execute the plan)")
 	return cmd
+}
+
+func flowOpenCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "open <branch>",
+		Short:             "Open the working directory in your editor/terminal",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowOpen(projectDir(), args[0], "")
+		},
+	}
 }
 
 func flowStatusCmd() *cobra.Command {
@@ -683,25 +719,6 @@ func flowCleanCmd() *cobra.Command {
 	}
 }
 
-func flowChatCmd() *cobra.Command {
-	var openCmd string
-
-	cmd := &cobra.Command{
-		Use:               "chat <branch>",
-		Short:             "Refresh task context and open interactive chat",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			openFlag := cmd.Flags().Changed("open")
-			return workflow.FlowChat(projectDir(), args[0], openFlag, openCmd)
-		},
-	}
-
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
-	cmd.Flags().Lookup("open").NoOptDefVal = " "
-	return cmd
-}
-
 func flowPRCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "pr <branch>",
@@ -724,6 +741,48 @@ func flowMergeCmd() *cobra.Command {
 			return workflow.FlowMerge(projectDir(), args[0])
 		},
 	}
+}
+
+func flowVerifyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify task results (pass or fail)",
+	}
+
+	cmd.AddCommand(flowVerifyPassCmd())
+	cmd.AddCommand(flowVerifyFailCmd())
+
+	return cmd
+}
+
+func flowVerifyPassCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "pass <branch>",
+		Short:             "Mark the task as verified and advance to done",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowVerifyPass(projectDir(), args[0])
+		},
+	}
+}
+
+func flowVerifyFailCmd() *cobra.Command {
+	var reason string
+
+	cmd := &cobra.Command{
+		Use:               "fail <branch>",
+		Short:             "Record a verification failure and return to implementation",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowVerifyFail(projectDir(), args[0], reason)
+		},
+	}
+
+	cmd.Flags().StringVar(&reason, "reason", "", "Reason for verification failure (required)")
+	cmd.MarkFlagRequired("reason")
+	return cmd
 }
 
 func flowAbandonCmd() *cobra.Command {

@@ -53,7 +53,6 @@ func buildRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	root.AddCommand(helloCmd())
 	root.AddCommand(initCmd())
 	root.AddCommand(upCmd())
 	root.AddCommand(downCmd())
@@ -184,16 +183,6 @@ func configCommandCompletion() func(*cobra.Command, []string, string) ([]string,
 			}
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
-func helloCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "hello",
-		Short: "Say hello",
-		Run: func(cmd *cobra.Command, args []string) {
-			output.Success("Hello from cbox!")
-		},
 	}
 }
 
@@ -630,7 +619,6 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowShapeCmd())
 	cmd.AddCommand(flowRunCmd())
 	cmd.AddCommand(flowOpenCmd())
-	cmd.AddCommand(flowStartCmd())
 	cmd.AddCommand(flowStatusCmd())
 	cmd.AddCommand(flowCleanCmd())
 	cmd.AddCommand(flowChatCmd())
@@ -717,41 +705,6 @@ func flowOpenCmd() *cobra.Command {
 			return workflow.FlowOpen(projectDir(), args[0], "")
 		},
 	}
-}
-
-func flowStartCmd() *cobra.Command {
-	var description string
-	var yolo bool
-	var openCmd string
-
-	cmd := &cobra.Command{
-		Use:        "start",
-		Short:      "Begin a new workflow: create issue and sandbox",
-		Deprecated: "use 'cbox flow new' + 'cbox flow shape' + 'cbox flow run' instead",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if description == "" {
-				cfg, _ := config.Load(projectDir())
-				var editorCfg string
-				if cfg != nil {
-					editorCfg = cfg.Editor
-				}
-				var err error
-				description, err = workflow.EditDescription(editorCfg)
-				if err != nil {
-					return err
-				}
-			}
-			openFlag := cmd.Flags().Changed("open")
-			return workflow.FlowStart(projectDir(), description, yolo, openFlag, openCmd)
-		},
-	}
-
-	cmd.Flags().StringVarP(&description, "description", "d", "", "Flow description (opens editor if omitted)")
-	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run all phases automatically (research, execute, PR)")
-	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
-	cmd.Flags().Lookup("open").NoOptDefVal = " "
-	return cmd
 }
 
 func flowStatusCmd() *cobra.Command {

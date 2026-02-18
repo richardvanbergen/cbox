@@ -122,7 +122,10 @@ If /workspace/.cbox/plan.md already exists, read it and continue from where it l
 When the plan is complete and the user confirms:
 1. Write the final plan to /workspace/.cbox/plan.md
 2. Update /workspace/.cbox/task.json — change the "phase" field to "ready"
-3. Commit .cbox/plan.md and .cbox/task.json using git`
+
+IMPORTANT: Do NOT commit or git-add any files in .cbox/ (task.json, plan.md, etc.).
+These files are local workflow state managed by the cbox system and are in .gitignore.
+Never use "git add -f" to bypass .gitignore for these files.`
 
 // buildShapingPrompt expands the shaping template with task data.
 func buildShapingPrompt(task *Task) string {

@@ -116,7 +116,8 @@ Read the plan file for full details, including acceptance criteria.
 - Write tests and ensure all acceptance criteria are satisfied.
 - When complete, call the cbox_report MCP tool with type "done", then use cbox_flow_pr to create a PR.
 - Do not deviate from the plan without discussing with the user first.
-- If the plan is unclear or incomplete on a point, ask rather than guess.`
+- If the plan is unclear or incomplete on a point, ask rather than guess.
+- IMPORTANT: Do NOT commit or git-add any files in .cbox/ (task.json, plan.md, etc.). These are local workflow state in .gitignore. Never use "git add -f" to bypass this.`
 
 const yoloModeSuffix = `
 

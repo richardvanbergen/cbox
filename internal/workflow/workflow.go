@@ -196,9 +196,17 @@ func FlowMerge(projectDir, branch string) error {
 		return err
 	}
 
-	// Require a PR
+	// Try to detect PR if not stored in task
 	if task.PRURL == "" {
-		return fmt.Errorf("no PR has been created for branch %q — run 'cbox flow pr %s' first", branch, branch)
+		prStatus, lookupErr := lookupBranchPR(wf, sandboxState.WorktreePath, branch)
+		if lookupErr != nil || prStatus == nil {
+			return fmt.Errorf("no PR found for branch %q — run 'cbox flow pr %s' first", branch, branch)
+		}
+		task.PRURL = prStatus.URL
+		task.PRNumber = prStatus.Number
+		if err := SaveTask(sandboxState.WorktreePath, task); err != nil {
+			output.Warning("Could not save detected PR info: %v", err)
+		}
 	}
 
 	// Merge PR
@@ -272,6 +280,31 @@ func fetchTaskPRStatus(wf *config.WorkflowConfig, task *Task) (*PRStatus, error)
 	status, err := parsePRJSON(prOutput)
 	if err != nil {
 		return nil, fmt.Errorf("parsing PR status: %w", err)
+	}
+
+	return status, nil
+}
+
+// lookupBranchPR tries to discover PR info for a branch by running the
+// view command from the worktree directory (where tools like gh can
+// auto-detect the PR from the current branch).
+func lookupBranchPR(wf *config.WorkflowConfig, wtPath, branch string) (*PRStatus, error) {
+	if wf == nil || wf.PR == nil || wf.PR.View == "" {
+		return nil, fmt.Errorf("no pr.view command configured")
+	}
+
+	// Pass the branch name as PRNumber — gh accepts branch names too
+	prOutput, err := runShellCommandInDir(wf.PR.View, map[string]string{
+		"PRNumber": branch,
+		"PRURL":    "",
+	}, wtPath)
+	if err != nil {
+		return nil, fmt.Errorf("looking up PR for branch %q: %w", branch, err)
+	}
+
+	status, err := parsePRJSON(prOutput)
+	if err != nil {
+		return nil, fmt.Errorf("parsing PR info: %w", err)
 	}
 
 	return status, nil

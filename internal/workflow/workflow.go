@@ -112,22 +112,37 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("pushing branch: %w", err)
 	}
 
-	var prOutput string
+	var prURL, prNumber string
+	prExisted := false
 	if err := output.Spin("Creating PR", func() error {
-		var prErr error
-		prOutput, prErr = runShellCommandInDir(wf.PR.Create, map[string]string{
+		prOut, prErr := runShellCommandInDir(wf.PR.Create, map[string]string{
 			"Title":       title,
 			"Description": description,
 		}, wtPath)
-		return prErr
+		if prErr != nil {
+			// Check if PR already exists — gh includes the URL in the error
+			errMsg := prErr.Error()
+			if strings.Contains(errMsg, "already exists") {
+				url, num, parseErr := parsePROutput(errMsg)
+				if parseErr == nil {
+					prURL = url
+					prNumber = num
+					prExisted = true
+					return nil
+				}
+			}
+			return prErr
+		}
+		url, num, parseErr := parsePROutput(prOut)
+		if parseErr != nil {
+			prURL = prOut
+		} else {
+			prURL = url
+			prNumber = num
+		}
+		return nil
 	}); err != nil {
 		return fmt.Errorf("creating PR: %w", err)
-	}
-
-	prURL, prNumber, parseErr := parsePROutput(prOutput)
-	if parseErr != nil {
-		output.Warning("Could not parse PR number: %v", parseErr)
-		prURL = prOutput
 	}
 
 	// Save PR info to task
@@ -138,10 +153,16 @@ func FlowPR(projectDir, branch string) error {
 	}
 
 	// Auto-advance to verification
-	advanceTaskToVerification(wtPath, wf)
+	advanced := advanceTaskToVerification(wtPath, wf)
 
-	output.Success("PR created: %s", prURL)
-	output.Text("Next: review the PR, then run 'cbox flow verify pass %s' or 'cbox flow verify fail %s --reason \"...\"'", branch, branch)
+	if prExisted {
+		output.Success("PR already exists: %s", prURL)
+	} else {
+		output.Success("PR created: %s", prURL)
+	}
+	if advanced {
+		output.Text("Next: review the PR, then run 'cbox flow verify pass %s' or 'cbox flow verify fail %s --reason \"...\"'", branch, branch)
+	}
 	return nil
 }
 

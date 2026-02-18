@@ -66,6 +66,12 @@ func TestParsePROutput(t *testing.T) {
 			wantNumber: "123",
 		},
 		{
+			name:       "gh already exists error message",
+			input:      `a pull request for branch "my-branch" into branch "main" already exists:\nhttps://github.com/owner/repo/pull/119`,
+			wantURL:    "https://github.com/owner/repo/pull/119",
+			wantNumber: "119",
+		},
+		{
 			name:    "empty input",
 			input:   "",
 			wantErr: true,

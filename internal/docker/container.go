@@ -443,6 +443,27 @@ func InjectFile(container, path, content string) error {
 	return nil
 }
 
+// HasConversationHistory checks if Claude Code has any conversation history
+// inside the given container. It runs `claude conversation list` and returns
+// true if any conversations exist.
+func HasConversationHistory(containerName string) (bool, error) {
+	cmd := exec.Command("docker", "exec", "-u", "claude", containerName,
+		"claude", "conversation", "list", "--output-format", "json")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("checking conversation history: %w", err)
+	}
+
+	return parseConversationList(out), nil
+}
+
+// parseConversationList returns true if the output from
+// `claude conversation list --output-format json` contains any conversations.
+func parseConversationList(output []byte) bool {
+	trimmed := strings.TrimSpace(string(output))
+	return trimmed != "" && trimmed != "[]"
+}
+
 // IsRunning checks if a container is currently running.
 func IsRunning(name string) (bool, error) {
 	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name)

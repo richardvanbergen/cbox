@@ -72,8 +72,20 @@ func FlowRun(projectDir, branch string, yolo bool) error {
 		return FlowPR(projectDir, branch)
 	}
 
-	// Interactive: resume if already implementing, otherwise start fresh
+	// Interactive: resume if already implementing and conversation history exists
 	resume := alreadyImplementing
+	if resume {
+		hasHistory, err := sandbox.HasConversationHistory(projectDir, branch)
+		if err != nil {
+			output.Warning("Could not check conversation history: %v", err)
+			hasHistory = false
+		}
+		if !hasHistory {
+			output.Warning("No conversation history found — starting fresh session")
+			resume = false
+		}
+	}
+
 	var initialPrompt string
 	if !resume {
 		initialPrompt = prompt

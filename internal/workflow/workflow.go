@@ -152,15 +152,22 @@ func FlowPR(projectDir, branch string) error {
 		output.Warning("Could not save PR info to task: %v", err)
 	}
 
-	// Auto-advance to verification
-	advanced := advanceTaskToVerification(wtPath, wf)
+	// Advance to verification if not already there or past it
+	advanced := false
+	if task.Phase != PhaseVerification && task.Phase != PhaseDone {
+		if err := task.SetPhase(wtPath, PhaseVerification, wf); err != nil {
+			output.Warning("Could not advance task to verification: %v", err)
+		} else {
+			advanced = true
+		}
+	}
 
 	if prExisted {
 		output.Success("PR already exists: %s", prURL)
 	} else {
 		output.Success("PR created: %s", prURL)
 	}
-	if advanced {
+	if advanced || task.Phase == PhaseVerification {
 		output.Text("Next: review the PR, then run 'cbox flow verify pass %s' or 'cbox flow verify fail %s --reason \"...\"'", branch, branch)
 	}
 	return nil

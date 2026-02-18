@@ -603,6 +603,7 @@ func flowCmd() *cobra.Command {
 	cmd.AddCommand(flowInitCmd())
 	cmd.AddCommand(flowNewCmd())
 	cmd.AddCommand(flowShapeCmd())
+	cmd.AddCommand(flowReadyCmd())
 	cmd.AddCommand(flowRunCmd())
 	cmd.AddCommand(flowOpenCmd())
 	cmd.AddCommand(flowStatusCmd())
@@ -683,6 +684,18 @@ func flowShapeCmd() *cobra.Command {
 		ValidArgsFunction: flowCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return workflow.FlowShape(projectDir(), args[0])
+		},
+	}
+}
+
+func flowReadyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "ready <branch>",
+		Short:             "Mark shaping as complete and advance to ready phase",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: flowCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return workflow.FlowReady(projectDir(), args[0])
 		},
 	}
 }

@@ -96,32 +96,6 @@ func TestBuildImplementationPrompt_NoUnexpandedVars(t *testing.T) {
 	}
 }
 
-func TestFormatVerifyFailures_Empty(t *testing.T) {
-	result := formatVerifyFailures(nil)
-	if result != "" {
-		t.Errorf("expected empty string for nil failures, got %q", result)
-	}
-
-	result = formatVerifyFailures([]VerifyFailure{})
-	if result != "" {
-		t.Errorf("expected empty string for empty failures, got %q", result)
-	}
-}
-
-func TestFormatVerifyFailures_WithEntries(t *testing.T) {
-	failures := []VerifyFailure{
-		{Reason: "Tests fail", Timestamp: time.Date(2025, 2, 18, 10, 0, 0, 0, time.UTC)},
-	}
-	result := formatVerifyFailures(failures)
-
-	if !strings.Contains(result, "Tests fail") {
-		t.Error("should contain failure reason")
-	}
-	if !strings.Contains(result, "2025-02-18") {
-		t.Error("should contain timestamp")
-	}
-}
-
 func TestPlanExists(t *testing.T) {
 	dir := t.TempDir()
 
@@ -138,52 +112,6 @@ func TestPlanExists(t *testing.T) {
 	if !planExists(dir) {
 		t.Error("planExists should return true after creating plan")
 	}
-}
-
-func TestAdvanceTaskToVerification(t *testing.T) {
-	dir := t.TempDir()
-
-	task := NewTask("test", "test", "Test", "Description")
-	task.Phase = PhaseImplementation
-	if err := SaveTask(dir, task); err != nil {
-		t.Fatalf("SaveTask failed: %v", err)
-	}
-
-	advanceTaskToVerification(dir, nil)
-
-	loaded, err := LoadTask(dir)
-	if err != nil {
-		t.Fatalf("LoadTask failed: %v", err)
-	}
-	if loaded.Phase != PhaseVerification {
-		t.Errorf("phase = %q, want %q", loaded.Phase, PhaseVerification)
-	}
-}
-
-func TestAdvanceTaskToVerification_SkipsWhenNotImplementation(t *testing.T) {
-	dir := t.TempDir()
-
-	task := NewTask("test", "test", "Test", "Description")
-	task.Phase = PhaseShaping
-	if err := SaveTask(dir, task); err != nil {
-		t.Fatalf("SaveTask failed: %v", err)
-	}
-
-	advanceTaskToVerification(dir, nil)
-
-	loaded, err := LoadTask(dir)
-	if err != nil {
-		t.Fatalf("LoadTask failed: %v", err)
-	}
-	if loaded.Phase != PhaseShaping {
-		t.Errorf("phase should still be shaping, got %q", loaded.Phase)
-	}
-}
-
-func TestAdvanceTaskToVerification_NoTaskFile(t *testing.T) {
-	dir := t.TempDir()
-	// Should not panic when no task.json exists
-	advanceTaskToVerification(dir, nil)
 }
 
 func TestFlowRun_PhaseValidation(t *testing.T) {

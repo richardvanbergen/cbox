@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -68,9 +70,20 @@ func (s *LineSpinner) Resolve(index int, status string) {
 	}
 }
 
+// Stop forcefully terminates the spinner, unblocking Run.
+func (s *LineSpinner) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
+}
+
 // Run starts the spinner animation. It prints all lines initially, then
 // updates them in-place at ~80ms intervals. It blocks until all lines are
-// resolved or the returned stop function is called.
+// resolved, a stop signal is received, or SIGINT/SIGTERM is caught.
 func (s *LineSpinner) Run() {
 	s.mu.Lock()
 	// Nothing to display — return immediately to avoid blocking forever.
@@ -80,6 +93,9 @@ func (s *LineSpinner) Run() {
 	}
 	// Hide cursor and save position before initial print
 	fmt.Fprintf(s.w, "\033[?25l\0337")
+	// Ensure cursor is always restored, even on signal or panic
+	defer fmt.Fprintf(s.w, "\033[?25h")
+
 	// Print all lines initially
 	for _, l := range s.lines {
 		status := progressPrefix.Render(spinnerFrames[0])
@@ -90,6 +106,10 @@ func (s *LineSpinner) Run() {
 	}
 	s.mu.Unlock()
 
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
+
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -97,8 +117,9 @@ func (s *LineSpinner) Run() {
 		select {
 		case <-s.done:
 			s.redraw()
-			// Show cursor again
-			fmt.Fprintf(s.w, "\033[?25h")
+			return
+		case <-sig:
+			s.redraw()
 			return
 		case <-ticker.C:
 			s.frame++
@@ -131,6 +152,10 @@ func spinTo(w io.Writer, msg string, fn func() error) error {
 	frame := 0
 	fmt.Fprintf(w, "%s %s", progressPrefix.Render(spinnerFrames[frame]), msg)
 
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
+
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -144,6 +169,10 @@ func spinTo(w io.Writer, msg string, fn func() error) error {
 				fmt.Fprintf(w, "%s %s\n", successPrefix.Render("✓"), msg)
 			}
 			return err
+		case <-sig:
+			fmt.Fprintf(w, "\r\033[2K")
+			fmt.Fprintf(w, "%s %s\n", progressPrefix.Render("›"), msg)
+			return nil
 		case <-ticker.C:
 			frame++
 			char := spinnerFrames[frame%len(spinnerFrames)]

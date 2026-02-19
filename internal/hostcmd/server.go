@@ -105,6 +105,7 @@ func (s *Server) Start() (int, error) {
 	// Register flow tools if in flow mode
 	if s.flow != nil {
 		mcpServer.AddTool(s.flowPRToolDefinition(), s.handleFlowPR)
+		mcpServer.AddTool(s.flowReadyToolDefinition(), s.handleFlowReady)
 	}
 
 	httpTransport := server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
@@ -373,6 +374,31 @@ func (s *Server) handleFlowPR(ctx context.Context, request mcp.CallToolRequest) 
 
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("flow pr failed:\n%s", result)), nil
+	}
+	return mcp.NewToolResultText(result), nil
+}
+
+func (s *Server) flowReadyToolDefinition() mcp.Tool {
+	return mcp.NewTool(
+		"cbox_flow_ready",
+		mcp.WithDescription("Mark shaping as complete. "+
+			"Call this when the plan is finalized and approved by the user."),
+	)
+}
+
+func (s *Server) handleFlowReady(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("finding cbox executable: %v", err)), nil
+	}
+
+	cmd := exec.CommandContext(ctx, selfPath, "flow", "ready", s.flow.Branch)
+	cmd.Dir = s.flow.ProjectDir
+	output, err := cmd.CombinedOutput()
+	result := strings.TrimSpace(string(output))
+
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("flow ready failed:\n%s", result)), nil
 	}
 	return mcp.NewToolResultText(result), nil
 }

@@ -31,6 +31,19 @@ func FlowShape(projectDir, branch string) error {
 		return fmt.Errorf("loading task: %w", err)
 	}
 
+	// Check if the PR has been merged remotely — block re-entry on a done task
+	if task.PRNumber != "" {
+		wf := cfg.Workflow
+		if wf != nil && wf.PR != nil && wf.PR.View != "" {
+			prStatus, _ := fetchTaskPRStatus(wf, task)
+			if prStatus != nil && strings.ToUpper(prStatus.State) == "MERGED" {
+				task.Phase = PhaseDone
+				SaveTask(wtPath, task)
+				return fmt.Errorf("PR has been merged — task is done")
+			}
+		}
+	}
+
 	alreadyShaping := task.Phase == PhaseShaping
 
 	// Validate phase
@@ -121,7 +134,7 @@ If /workspace/.cbox/plan.md already exists, read it and continue from where it l
 
 When the plan is complete and the user confirms:
 1. Write the final plan to /workspace/.cbox/plan.md
-2. Update /workspace/.cbox/task.json — change the "phase" field to "ready"
+2. Call the cbox_flow_ready MCP tool to advance the task to the ready phase
 
 IMPORTANT: Do NOT commit or git-add any files in .cbox/ (task.json, plan.md, etc.).
 These files are local workflow state managed by the cbox system and are in .gitignore.

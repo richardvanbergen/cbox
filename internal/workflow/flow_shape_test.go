@@ -93,8 +93,8 @@ func TestBuildShapingPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "Acceptance Criteria") {
 		t.Error("prompt should mention acceptance criteria")
 	}
-	if !strings.Contains(prompt, `"ready"`) {
-		t.Error("prompt should instruct advancing to ready phase")
+	if !strings.Contains(prompt, "cbox_flow_ready") {
+		t.Error("prompt should instruct calling cbox_flow_ready MCP tool")
 	}
 }
 

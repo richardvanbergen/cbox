@@ -145,20 +145,18 @@ func FlowPR(projectDir, branch string) error {
 		return fmt.Errorf("creating PR: %w", err)
 	}
 
-	// Save PR info and advance to verification in one save
+	// Save PR info first
 	task.PRURL = prURL
 	task.PRNumber = prNumber
-	shouldAdvance := task.Phase != PhaseVerification && task.Phase != PhaseDone
-	if shouldAdvance {
-		task.Phase = PhaseVerification
-	}
 	if err := SaveTask(wtPath, task); err != nil {
 		output.Warning("Could not save task: %v", err)
 	}
 
-	// Fire memory sync separately (best-effort)
-	if shouldAdvance {
-		syncMemory(task, wf)
+	// Advance to verification through SetPhase (validates + syncs memory)
+	if task.Phase != PhaseVerification && task.Phase != PhaseDone {
+		if err := task.SetPhase(wtPath, PhaseVerification, wf); err != nil {
+			output.Warning("Could not advance to verification: %v", err)
+		}
 	}
 
 	if prExisted {
@@ -328,6 +326,7 @@ func FlowStatus(projectDir, branch string) error {
 		if err != nil {
 			return fmt.Errorf("no flow found for branch %q", branch)
 		}
+		reconcileWithPR(task, sandboxState.WorktreePath, wf)
 		PrintTaskStatus(task)
 		if sandboxState.ServeURL != "" {
 			output.Text("Serve URL:   %s", sandboxState.ServeURL)
@@ -419,6 +418,36 @@ func FlowStatus(projectDir, branch string) error {
 	spinner.Run()
 
 	return nil
+}
+
+// reconcileWithPR checks the remote PR state and updates local state if needed.
+// If the PR has been merged, the task is advanced to done. This is a best-effort
+// operation — errors are silently ignored.
+func reconcileWithPR(task *Task, wtPath string, wf *config.WorkflowConfig) {
+	if task.PRNumber == "" {
+		return
+	}
+	if wf == nil || wf.PR == nil || wf.PR.View == "" {
+		return
+	}
+
+	prStatus, err := fetchTaskPRStatus(wf, task)
+	if err != nil || prStatus == nil {
+		return
+	}
+
+	switch strings.ToUpper(prStatus.State) {
+	case "MERGED":
+		if task.Phase != PhaseDone {
+			task.Phase = PhaseDone
+			SaveTask(wtPath, task)
+			// Skip syncMemory — the PR is already merged
+		}
+	case "CLOSED":
+		// PR was closed without merge — warn but don't change phase
+		// (user may reopen or create new PR)
+		output.Warning("PR #%s is closed without merge", task.PRNumber)
+	}
 }
 
 // FlowClean removes local resources (worktrees, containers) for flows whose PRs

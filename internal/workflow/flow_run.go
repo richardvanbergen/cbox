@@ -31,6 +31,19 @@ func FlowRun(projectDir, branch string, yolo bool) error {
 		return fmt.Errorf("loading task: %w", err)
 	}
 
+	// Check if the PR has been merged remotely — block re-entry on a done task
+	if task.PRNumber != "" {
+		wf := cfg.Workflow
+		if wf != nil && wf.PR != nil && wf.PR.View != "" {
+			prStatus, _ := fetchTaskPRStatus(wf, task)
+			if prStatus != nil && strings.ToUpper(prStatus.State) == "MERGED" {
+				task.Phase = PhaseDone
+				SaveTask(wtPath, task)
+				return fmt.Errorf("PR has been merged — task is done")
+			}
+		}
+	}
+
 	alreadyImplementing := task.Phase == PhaseImplementation
 
 	if !alreadyImplementing {
@@ -158,24 +171,6 @@ func buildImplementationPrompt(task *Task, yolo bool) string {
 	return prompt
 }
 
-// advanceTaskToVerification checks for a task.json in the worktree and
-// advances the phase from implementation to verification.
-// Called after a PR is successfully created. Returns true if advanced.
-func advanceTaskToVerification(wtPath string, wf *config.WorkflowConfig) bool {
-	task, err := LoadTask(wtPath)
-	if err != nil {
-		return false // no task.json — old-style flow, skip
-	}
-	if task.Phase != PhaseImplementation {
-		return false // not in implementation — skip
-	}
-	if err := task.SetPhase(wtPath, PhaseVerification, wf); err != nil {
-		output.Warning("Could not advance task to verification: %v", err)
-		return false
-	}
-	return true
-}
-
 // planExists checks if a plan file exists in the worktree.
 func planExists(wtPath string) bool {
 	planPath := filepath.Join(wtPath, ".cbox", "plan.md")
@@ -186,15 +181,3 @@ func planExists(wtPath string) bool {
 	return !info.IsDir()
 }
 
-// formatVerifyFailures formats verify failures for display in prompts.
-func formatVerifyFailures(failures []VerifyFailure) string {
-	if len(failures) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("Previous verification failures:")
-	for _, vf := range failures {
-		fmt.Fprintf(&b, "\n- [%s] %s", vf.Timestamp.Format("2006-01-02T15:04:05Z"), vf.Reason)
-	}
-	return b.String()
-}

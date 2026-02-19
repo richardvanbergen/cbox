@@ -32,12 +32,10 @@ func FlowVerifyPass(projectDir, branch string) error {
 		return fmt.Errorf("task is already done")
 	}
 
-	// Jump directly to done — skip intermediate phases
-	task.Phase = PhaseDone
-	if err := SaveTask(wtPath, task); err != nil {
-		return fmt.Errorf("saving task: %w", err)
+	// Advance to done through SetPhase (validates + syncs memory)
+	if err := task.SetPhase(wtPath, PhaseDone, cfg.Workflow); err != nil {
+		return fmt.Errorf("advancing to done: %w", err)
 	}
-	syncMemory(task, cfg.Workflow)
 
 	output.Success("Task verified. Run 'cbox flow merge %s' to merge the PR.", branch)
 	return nil
@@ -74,18 +72,22 @@ func FlowVerifyFail(projectDir, branch, reason string) error {
 		return fmt.Errorf("task has not started yet — nothing to verify")
 	}
 
-	// Record the failure
+	// Record the failure and save before phase transition so syncMemory sees it
 	task.VerifyFailures = append(task.VerifyFailures, VerifyFailure{
 		Reason:    reason,
 		Timestamp: time.Now(),
 	})
-
-	// Jump directly to implementation
-	task.Phase = PhaseImplementation
 	if err := SaveTask(wtPath, task); err != nil {
 		return fmt.Errorf("saving task: %w", err)
 	}
-	syncMemory(task, cfg.Workflow)
+
+	// Advance to implementation through SetPhase (validates + syncs memory)
+	// Skip if already in implementation (idempotent)
+	if task.Phase != PhaseImplementation {
+		if err := task.SetPhase(wtPath, PhaseImplementation, cfg.Workflow); err != nil {
+			return fmt.Errorf("advancing to implementation: %w", err)
+		}
+	}
 
 	output.Warning("Verification failed: %s", reason)
 	output.Text("Task moved back to implementation. Run 'cbox flow run %s' to address the issues.", branch)

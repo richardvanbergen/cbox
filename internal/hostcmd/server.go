@@ -27,12 +27,6 @@ type Report struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// FlowConfig holds flow-mode context for registering flow MCP tools.
-type FlowConfig struct {
-	ProjectDir string
-	Branch     string
-}
-
 // Server is an MCP server that exposes a run_command tool for whitelisted commands
 // and dedicated tools for named project commands.
 type Server struct {
@@ -41,7 +35,6 @@ type Server struct {
 	namedCommands map[string]string
 	reportDir     string
 	logDir        string // directory for command log files (defaults to <worktreePath>/.cbox/logs)
-	flow          *FlowConfig
 	listener      net.Listener
 	httpServer    *http.Server
 }
@@ -67,11 +60,6 @@ func (s *Server) SetReportDir(dir string) {
 // SetLogDir sets the directory where command log files are written.
 func (s *Server) SetLogDir(dir string) {
 	s.logDir = dir
-}
-
-// SetFlow enables flow-mode MCP tools (e.g. cbox_flow_pr).
-func (s *Server) SetFlow(fc *FlowConfig) {
-	s.flow = fc
 }
 
 // Start listens on a random port and serves the MCP protocol. Returns the port.
@@ -100,12 +88,6 @@ func (s *Server) Start() (int, error) {
 	// Register report tool if report dir is set
 	if s.reportDir != "" {
 		mcpServer.AddTool(s.reportToolDefinition(), s.handleReport)
-	}
-
-	// Register flow tools if in flow mode
-	if s.flow != nil {
-		mcpServer.AddTool(s.flowPRToolDefinition(), s.handleFlowPR)
-		mcpServer.AddTool(s.flowReadyToolDefinition(), s.handleFlowReady)
 	}
 
 	httpTransport := server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
@@ -289,7 +271,7 @@ func lastNLines(s string, n int) string {
 func (s *Server) reportToolDefinition() mcp.Tool {
 	return mcp.NewTool(
 		"cbox_report",
-		mcp.WithDescription("Report progress or results back to the workflow orchestrator. "+
+		mcp.WithDescription("Report progress or results back to the user. "+
 			"Use this to submit your plan, status updates, or completion summary."),
 		mcp.WithString("type",
 			mcp.Description("Report type: plan, status, or done"),
@@ -349,58 +331,6 @@ func (s *Server) handleReport(ctx context.Context, request mcp.CallToolRequest) 
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Report saved as %s", filename)), nil
-}
-
-func (s *Server) flowPRToolDefinition() mcp.Tool {
-	return mcp.NewTool(
-		"cbox_flow_pr",
-		mcp.WithDescription("Create a pull request for the current flow. "+
-			"This pushes the branch and creates a PR using the project's configured PR command. "+
-			"Only call this when you and the user agree the work is ready for review."),
-	)
-}
-
-func (s *Server) handleFlowPR(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Import cycle prevention: we shell out to `cbox flow pr` instead of calling workflow.FlowPR directly
-	selfPath, err := os.Executable()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("finding cbox executable: %v", err)), nil
-	}
-
-	cmd := exec.CommandContext(ctx, selfPath, "flow", "pr", s.flow.Branch)
-	cmd.Dir = s.flow.ProjectDir
-	output, err := cmd.CombinedOutput()
-	result := strings.TrimSpace(string(output))
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("flow pr failed:\n%s", result)), nil
-	}
-	return mcp.NewToolResultText(result), nil
-}
-
-func (s *Server) flowReadyToolDefinition() mcp.Tool {
-	return mcp.NewTool(
-		"cbox_flow_ready",
-		mcp.WithDescription("Mark shaping as complete. "+
-			"Call this when the plan is finalized and approved by the user."),
-	)
-}
-
-func (s *Server) handleFlowReady(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	selfPath, err := os.Executable()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("finding cbox executable: %v", err)), nil
-	}
-
-	cmd := exec.CommandContext(ctx, selfPath, "flow", "ready", s.flow.Branch)
-	cmd.Dir = s.flow.ProjectDir
-	output, err := cmd.CombinedOutput()
-	result := strings.TrimSpace(string(output))
-
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("flow ready failed:\n%s", result)), nil
-	}
-	return mcp.NewToolResultText(result), nil
 }
 
 func (s *Server) nextReportSequence() int {

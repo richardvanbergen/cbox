@@ -127,7 +127,6 @@ test = "npm test"
 | `ports` | Ports to expose from the container to the host (Docker `-p` syntax) |
 | `dockerfile` | Path to custom Dockerfile (see `cbox eject`) |
 | `open` | Shell command to run before chat (use `$Dir` for worktree path, e.g., `code $Dir`) |
-| `editor` | Editor command for editing flow descriptions (e.g., `vim`, `code --wait`) |
 | `serve` | Serve process config — see [Serve](#serve-cbox-serve) |
 
 ## Commands
@@ -486,94 +485,6 @@ cbox serve stop <branch>
 ```
 
 Serve also starts/stops automatically with `cbox up` and `cbox down`.
-
-## Workflow (`cbox flow`)
-
-Workflow orchestration for task-driven development. Creates an issue, spins up a sandbox, and provides the inner Claude with task context — the inner Claude drives the work, the flow system handles issue tracking.
-
-### Setup
-
-```bash
-# Add workflow config to cbox.toml (defaults use gh CLI)
-cbox flow init
-```
-
-### Usage
-
-```bash
-# Create issue + sandbox + task context (opens editor for description if not provided)
-cbox flow start
-# Or provide description inline
-cbox flow start -d "Add user authentication"
-
-# Open interactive chat (refreshes task from issue)
-cbox flow chat add-user-authentication
-
-# Create PR when done
-cbox flow pr add-user-authentication
-
-# Merge and clean up
-cbox flow merge add-user-authentication
-
-# Or abandon the flow
-cbox flow abandon add-user-authentication
-
-# Check status
-cbox flow status
-cbox flow status add-user-authentication
-```
-
-### Yolo mode
-
-Run fully autonomous — creates issue, starts sandbox, sends a headless prompt, and opens a PR:
-
-```bash
-cbox flow start --yolo "Add user authentication"
-```
-
-### How it works
-
-1. **`flow start`** — Slugifies the description into a branch name, creates a GitHub issue, starts a sandbox with the `cbox_report` MCP tool enabled, fetches issue content via `gh issue view`, writes a `.cbox-task` file into the worktree, and appends a task pointer to the container's `CLAUDE.md`.
-
-2. **`flow chat`** — Refreshes `.cbox-task` from the latest issue content, then opens an interactive Claude session. The inner Claude reads `/workspace/.cbox-task` for task details and calls `cbox_report` when done.
-
-3. **`flow pr`** / **`flow merge`** — Creates a PR (using done report as description if available), then merges and cleans up.
-
-### Workflow config
-
-The `workflow` section of `cbox.toml` controls issue tracking commands.
-
-You can also configure an `editor` at the top level for editing flow descriptions:
-
-```toml
-editor = "vim"  # or "code --wait", "nano", etc.
-```
-
-If not configured, defaults to `$EDITOR` environment variable, then falls back to a temporary file approach.
-
-Workflow commands:
-
-```toml
-[workflow]
-branch = "$Slug"
-
-[workflow.issue]
-create = "gh issue create --title \"$Title\" --body \"$Description\" | grep -o '[0-9]*$'"
-view = "gh issue view \"$IssueID\" --json number,title,body,labels,state,url"
-close = "gh issue close \"$IssueID\""
-set_status = "gh issue edit \"$IssueID\" --add-label \"$Status\""
-comment = "gh issue comment \"$IssueID\" --body \"$Body\""
-
-[workflow.pr]
-create = "gh pr create --title \"$Title\" --body \"$Description\""
-view = "gh pr view \"$PRNumber\" --json number,state,title,url,mergedAt"
-merge = "gh pr merge \"$PRNumber\" --merge"
-
-[workflow.prompts]
-yolo = "custom prompt for --yolo mode (optional)"
-```
-
-All commands use shell variable substitution (`$VarName`). Values are passed as environment variables so they're safe from shell metacharacter injection. Replace with your issue tracker's CLI as needed.
 
 ## Docker resources
 

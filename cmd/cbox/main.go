@@ -16,7 +16,6 @@ import (
 	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/serve"
-	"github.com/richvanbergen/cbox/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +65,6 @@ func buildRootCmd() *cobra.Command {
 	root.AddCommand(runCmd())
 	root.AddCommand(ejectCmd())
 	root.AddCommand(completionCmd())
-	root.AddCommand(flowCmd())
 	root.AddCommand(bridgeProxyCmd())
 	root.AddCommand(mcpProxyCmd())
 	root.AddCommand(serveRunnerCmd())
@@ -93,33 +91,6 @@ func projectDir() string {
 
 // sandboxCompletion returns a completion function that suggests existing cbox sandboxes.
 func sandboxCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) != 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		dir, err := os.Getwd()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		states, err := sandbox.ListStates(dir)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		var completions []string
-		for _, s := range states {
-			if s.Branch != "" && strings.HasPrefix(s.Branch, toComplete) {
-				completions = append(completions, s.Branch)
-			}
-		}
-		return completions, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
-// flowCompletion returns a completion function that suggests existing flow branches.
-func flowCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -594,246 +565,6 @@ Fish:
 	return cmd
 }
 
-func flowCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "flow",
-		Short: "Workflow orchestration for automated development flows",
-	}
-
-	cmd.AddCommand(flowInitCmd())
-	cmd.AddCommand(flowNewCmd())
-	cmd.AddCommand(flowShapeCmd())
-	cmd.AddCommand(flowReadyCmd())
-	cmd.AddCommand(flowRunCmd())
-	cmd.AddCommand(flowOpenCmd())
-	cmd.AddCommand(flowStatusCmd())
-	cmd.AddCommand(flowCleanCmd())
-	cmd.AddCommand(flowPRCmd())
-	cmd.AddCommand(flowMergeCmd())
-	cmd.AddCommand(flowVerifyCmd())
-	cmd.AddCommand(flowAbandonCmd())
-
-	return cmd
-}
-
-func flowInitCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "init",
-		Short: "Add default workflow config to cbox.toml",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowInit(projectDir())
-		},
-	}
-}
-
-func flowNewCmd() *cobra.Command {
-	var yolo bool
-
-	cmd := &cobra.Command{
-		Use:   "new [description]",
-		Short: "Bootstrap a new task (container + branch + description)",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if yolo {
-				var description string
-				if len(args) > 0 {
-					description = args[0]
-				} else {
-					cfg, _ := config.Load(projectDir())
-					var editorCfg string
-					if cfg != nil {
-						editorCfg = cfg.Editor
-					}
-					var err error
-					description, err = workflow.EditDescription(editorCfg)
-					if err != nil {
-						return err
-					}
-				}
-				return workflow.FlowNewYolo(projectDir(), description)
-			}
-
-			var description string
-			if len(args) > 0 {
-				description = args[0]
-			} else {
-				cfg, _ := config.Load(projectDir())
-				var editorCfg string
-				if cfg != nil {
-					editorCfg = cfg.Editor
-				}
-				var err error
-				description, err = workflow.EditDescription(editorCfg)
-				if err != nil {
-					return err
-				}
-			}
-			return workflow.FlowNew(projectDir(), description)
-		},
-	}
-
-	cmd.Flags().BoolVar(&yolo, "yolo", false, "Skip shaping — auto-plan, implement, and create PR")
-	return cmd
-}
-
-func flowShapeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "shape <branch>",
-		Short:             "Enter shaping mode — collaboratively plan the task",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowShape(projectDir(), args[0])
-		},
-	}
-}
-
-func flowReadyCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "ready <branch>",
-		Short:             "Mark shaping as complete and advance to ready phase",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowReady(projectDir(), args[0])
-		},
-	}
-}
-
-func flowRunCmd() *cobra.Command {
-	var yolo bool
-
-	cmd := &cobra.Command{
-		Use:               "run <branch>",
-		Short:             "Enter implementation mode — execute the plan",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowRun(projectDir(), args[0], yolo)
-		},
-	}
-
-	cmd.Flags().BoolVar(&yolo, "yolo", false, "Run non-interactively (auto-execute the plan)")
-	return cmd
-}
-
-func flowOpenCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "open <branch>",
-		Short:             "Open the working directory in your editor/terminal",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowOpen(projectDir(), args[0], "")
-		},
-	}
-}
-
-func flowStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "status [branch]",
-		Short:             "Show status of active flows",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			branch := ""
-			if len(args) > 0 {
-				branch = args[0]
-			}
-			return workflow.FlowStatus(projectDir(), branch)
-		},
-	}
-}
-
-func flowCleanCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "clean",
-		Short: "Remove local resources for merged flows",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowClean(projectDir())
-		},
-	}
-}
-
-func flowPRCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "pr <branch>",
-		Short:             "Create a pull request for the flow",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowPR(projectDir(), args[0])
-		},
-	}
-}
-
-func flowMergeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "merge <branch>",
-		Short:             "Merge the PR and clean up",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowMerge(projectDir(), args[0])
-		},
-	}
-}
-
-func flowVerifyCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "verify",
-		Short: "Verify task results (pass or fail)",
-	}
-
-	cmd.AddCommand(flowVerifyPassCmd())
-	cmd.AddCommand(flowVerifyFailCmd())
-
-	return cmd
-}
-
-func flowVerifyPassCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "pass <branch>",
-		Short:             "Mark the task as verified and advance to done",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowVerifyPass(projectDir(), args[0])
-		},
-	}
-}
-
-func flowVerifyFailCmd() *cobra.Command {
-	var reason string
-
-	cmd := &cobra.Command{
-		Use:               "fail <branch>",
-		Short:             "Record a verification failure and return to implementation",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowVerifyFail(projectDir(), args[0], reason)
-		},
-	}
-
-	cmd.Flags().StringVar(&reason, "reason", "", "Reason for verification failure (required)")
-	cmd.MarkFlagRequired("reason")
-	return cmd
-}
-
-func flowAbandonCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "abandon <branch>",
-		Short:             "Cancel the flow and clean up",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: flowCompletion(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return workflow.FlowAbandon(projectDir(), args[0])
-		},
-	}
-}
-
 func testOutputCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "_test-output",
@@ -896,8 +627,6 @@ func mcpProxyCmd() *cobra.Command {
 	var commandsJSON string
 	var reportDir string
 	var logDir string
-	var flowProjectDir string
-	var flowBranch string
 
 	cmd := &cobra.Command{
 		Use:    "_mcp-proxy [host-commands...]",
@@ -910,14 +639,7 @@ func mcpProxyCmd() *cobra.Command {
 					return fmt.Errorf("parsing --commands JSON: %w", err)
 				}
 			}
-			var flow *hostcmd.FlowConfig
-			if flowProjectDir != "" && flowBranch != "" {
-				flow = &hostcmd.FlowConfig{
-					ProjectDir: flowProjectDir,
-					Branch:     flowBranch,
-				}
-			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, logDir, flow)
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, logDir)
 		},
 	}
 
@@ -926,8 +648,6 @@ func mcpProxyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
 	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
 	cmd.Flags().StringVar(&logDir, "log-dir", "", "Directory for command log files")
-	cmd.Flags().StringVar(&flowProjectDir, "flow-project-dir", "", "Project dir for flow commands")
-	cmd.Flags().StringVar(&flowBranch, "flow-branch", "", "Branch name for flow commands")
 	return cmd
 }
 

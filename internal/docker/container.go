@@ -375,7 +375,7 @@ dockerfile = ".cbox.Dockerfile"
 The user creates a Dockerfile that installs what's needed (e.g. node, python, etc.)
 and references it in cbox.toml. This makes the tools available directly in the container.`)
 
-	// Extra sections (e.g. task assignment from workflow)
+	// Extra sections (e.g. task assignment)
 	for _, e := range extras {
 		sections = append(sections, e)
 	}

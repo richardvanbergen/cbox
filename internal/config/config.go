@@ -22,8 +22,6 @@ type Config struct {
 	Ports        []string          `toml:"ports,omitempty"`
 	Dockerfile   string            `toml:"dockerfile,omitempty"`
 	Open         string            `toml:"open,omitempty"`
-	Editor       string            `toml:"editor,omitempty"`
-	Workflow     *WorkflowConfig   `toml:"workflow,omitempty"`
 	Serve        *ServeConfig      `toml:"serve,omitempty"`
 }
 
@@ -33,54 +31,11 @@ type ServeConfig struct {
 	ProxyPort int    `toml:"proxy_port,omitempty"`
 }
 
-type WorkflowConfig struct {
-	Branch  string                `toml:"branch,omitempty"`
-	Issue   *WorkflowIssueConfig  `toml:"issue,omitempty"`
-	PR      *WorkflowPRConfig     `toml:"pr,omitempty"`
-	Prompts *WorkflowPromptConfig `toml:"prompts,omitempty"`
-}
-
-type WorkflowIssueConfig struct {
-	Create    string `toml:"create,omitempty"`
-	View      string `toml:"view,omitempty"`
-	Close     string `toml:"close,omitempty"`
-	SetStatus string `toml:"set_status,omitempty"`
-	Comment   string `toml:"comment,omitempty"`
-}
-
-type WorkflowPRConfig struct {
-	Create string `toml:"create,omitempty"`
-	Merge  string `toml:"merge,omitempty"`
-	View   string `toml:"view,omitempty"`
-}
-
-type WorkflowPromptConfig struct {
-	Yolo string `toml:"yolo,omitempty"`
-}
-
 func DefaultConfig() *Config {
 	return &Config{
 		Env:          []string{"ANTHROPIC_API_KEY"},
 		HostCommands: []string{"git", "gh"},
 		CopyFiles:    []string{".env"},
-	}
-}
-
-func DefaultWorkflowConfig() *WorkflowConfig {
-	return &WorkflowConfig{
-		Branch: "$Slug",
-		Issue: &WorkflowIssueConfig{
-			Create:    `gh issue create --title "$Title" --body "$Description" | grep -o '[0-9]*$'`,
-			View:      `gh issue view "$IssueID" --json number,title,body,labels,state,url`,
-			Close:     `gh issue close "$IssueID"`,
-			SetStatus: `gh issue edit "$IssueID" --add-label "$Status"`,
-			Comment:   `gh issue comment "$IssueID" --body "$Body"`,
-		},
-		PR: &WorkflowPRConfig{
-			Create: `gh pr create --title "$Title" --body "$Description"`,
-			Merge:  `gh pr merge "$PRNumber" --merge`,
-			View:   `gh pr view "$PRNumber" --json number,state,title,url,mergedAt,closedAt`,
-		},
 	}
 }
 

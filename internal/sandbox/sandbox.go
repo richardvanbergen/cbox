@@ -19,9 +19,8 @@ import (
 
 // UpOptions configures optional behavior for sandbox creation.
 type UpOptions struct {
-	Rebuild    bool
-	ReportDir  string // If set, enables the cbox_report MCP tool
-	FlowBranch string // If set, enables flow MCP tools (cbox_flow_pr, etc.)
+	Rebuild   bool
+	ReportDir string // If set, enables the cbox_report MCP tool
 }
 
 // Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
@@ -162,7 +161,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	var mcpPID, mcpPort int
 	if len(cfg.HostCommands) > 0 || len(cfg.Commands) > 0 {
 		output.Progress("Starting MCP host command server")
-		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, branch, cfg.HostCommands, cfg.Commands, opts.ReportDir, opts.FlowBranch)
+		mcpPID, mcpPort, err = startMCPProxy(projectDir, wtPath, branch, cfg.HostCommands, cfg.Commands, opts.ReportDir)
 		if err != nil {
 			output.Warning("MCP host command server failed: %v", err)
 		} else {
@@ -551,7 +550,7 @@ func stopProcess(pid int) {
 
 // startMCPProxy launches `cbox _mcp-proxy` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startMCPProxy(projectDir, worktreePath, branch string, hostCommands []string, namedCommands map[string]string, reportDir, flowBranch string) (int, int, error) {
+func startMCPProxy(projectDir, worktreePath, branch string, hostCommands []string, namedCommands map[string]string, reportDir string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
@@ -577,11 +576,6 @@ func startMCPProxy(projectDir, worktreePath, branch string, hostCommands []strin
 	// Pass report dir if set
 	if reportDir != "" {
 		args = append(args, "--report-dir", reportDir)
-	}
-
-	// Pass flow context if set
-	if flowBranch != "" {
-		args = append(args, "--flow-project-dir", projectDir, "--flow-branch", flowBranch)
 	}
 
 	// Host commands are passed as positional args

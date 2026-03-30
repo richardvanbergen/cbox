@@ -1,2 +1,5 @@
 bin/
 .cbox/
+
+# Local smoke tests and experiments (nested repos, runtime state)
+scratch/

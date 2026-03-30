@@ -9,6 +9,7 @@ import (
 
 	"path/filepath"
 
+	"github.com/richvanbergen/cbox/internal/backend"
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
@@ -46,7 +47,7 @@ func resolveVersion() string {
 func buildRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "cbox",
-		Short:         "Sandboxed development environments for Claude Code",
+		Short:         "Sandboxed development environments for coding agents",
 		Version:       resolveVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -163,7 +164,7 @@ func initCmd() *cobra.Command {
 			}
 
 			output.Success("Created %s", config.ConfigFile)
-			output.Text("Edit the file to configure your commands, env vars, and host commands.")
+			output.Text("Edit the file to configure your backend, commands, env vars, and host commands.")
 			return nil
 		},
 	}
@@ -174,7 +175,7 @@ func upCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "up <branch>",
-		Short: "Create worktree and start sandboxed Claude container",
+		Short: "Create worktree and start sandboxed agent container",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.Up(projectDir(), args[0], rebuild)
@@ -265,7 +266,7 @@ func chatCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:               "chat <branch>",
-		Short:             "Start Claude Code in the sandbox (interactive or one-shot with -p)",
+		Short:             "Start the configured agent in the sandbox (interactive or one-shot with -p)",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -297,7 +298,7 @@ func chatCmd() *cobra.Command {
 func shellCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "shell <branch>",
-		Short:             "Open a shell in the Claude container (for debugging)",
+		Short:             "Open a shell in the sandbox container (for debugging)",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -324,12 +325,12 @@ func listCmd() *cobra.Command {
 
 			for _, s := range states {
 				status := "unknown"
-				if running, _ := docker.IsRunning(s.ClaudeContainer); running {
+				if running, _ := docker.IsRunning(s.RuntimeContainer); running {
 					status = "running"
 				} else {
 					status = "stopped"
 				}
-				output.Text("%-30s %s", s.Branch, status)
+				output.Text("%-30s %-8s %s", s.Branch, s.Backend, status)
 			}
 			return nil
 		},
@@ -486,7 +487,11 @@ func ejectCmd() *cobra.Command {
 				return fmt.Errorf("already ejected: %s references dockerfile %q", config.ConfigFile, cfg.Dockerfile)
 			}
 
-			data, err := docker.EmbeddedDockerfile()
+			rtBackend, err := backend.Get(backend.ParseName(cfg.Backend))
+			if err != nil {
+				return err
+			}
+			data, err := rtBackend.EmbeddedDockerfile()
 			if err != nil {
 				return fmt.Errorf("reading embedded Dockerfile: %w", err)
 			}
@@ -579,7 +584,7 @@ func testOutputCmd() *cobra.Command {
 				output.ProgressBlock{Message: "Starting sandbox container..."},
 				output.WarningBlock{Message: "Port 8080 is already in use, using 8081"},
 				output.SuccessBlock{Message: "Sandbox running (container: cbox-feature-auth)"},
-				output.ProgressBlock{Message: "Running Claude prompt..."},
+				output.ProgressBlock{Message: "Running agent prompt..."},
 				output.TextBlock{Text: "I'll help you implement the authentication module. Let me start by reading the existing code."},
 				output.ToolUseBlock{
 					ID:    "toolu_01ABC",
@@ -592,7 +597,7 @@ func testOutputCmd() *cobra.Command {
 					Name:  "Write",
 					Input: json.RawMessage(`{"file_path":"/workspace/internal/auth/login.go","content":"package auth\n..."}`),
 				},
-				output.SuccessBlock{Message: "Claude prompt completed"},
+				output.SuccessBlock{Message: "Agent prompt completed"},
 				output.ErrorBlock{Message: "Failed to push branch: remote rejected"},
 			}
 			output.Render(os.Stdout, blocks)

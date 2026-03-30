@@ -1,12 +1,12 @@
 # cbox
 
-Sandboxed development environments for Claude Code. Each sandbox runs a Claude container with your workspace mounted, and exposes project commands as MCP tools that run on the host.
+Sandboxed development environments for coding agents. Each sandbox runs a backend-specific container with your workspace mounted, and exposes project commands as MCP tools that run on the host.
 
 ## Architecture
 
 ```
-Host Machine                    Claude Container
-                                (debian + Claude CLI)
+Host Machine                    Agent Container
+                                (debian + Claude or Cursor CLI)
   MCP Server
     cbox_build ──sh -c──>       calls via MCP tool
     cbox_test  ──sh -c──>       calls via MCP tool
@@ -16,8 +16,8 @@ Host Machine                    Claude Container
                                 docker.sock (mount)
 ```
 
-- **Claude container** — Fixed Debian image with Claude Code CLI. `cbox chat` connects here.
-- **MCP server** — Runs on the host, exposes named commands (`cbox_build`, `cbox_test`, etc.) and whitelisted host commands (`git`, `gh`) as MCP tools. Claude calls these tools from inside the container.
+- **Agent container** — Fixed Debian image with the selected backend CLI. `cbox chat` connects here.
+- **MCP server** — Runs on the host, exposes named commands (`cbox_build`, `cbox_test`, etc.) and whitelisted host commands (`git`, `gh`) as MCP tools. The active backend calls these tools from inside the container.
 - **Workspace** — A git worktree mounted into the container. Each branch gets its own isolated worktree.
 
 ## Install
@@ -85,13 +85,13 @@ cbox init
 # Start sandbox on a new branch
 cbox up feat-my-feature
 
-# Start Claude
+# Start the configured backend
 cbox chat feat-my-feature
 
 # Run a one-shot prompt
 cbox chat feat-my-feature -p "refactor the auth module"
 
-# Shell into the Claude container (for debugging)
+# Shell into the sandbox container (for debugging)
 cbox shell feat-my-feature
 
 # Stop container (keeps worktree)
@@ -106,6 +106,7 @@ cbox clean feat-my-feature
 Create `cbox.toml` in your project root (`cbox init` generates a starter config):
 
 ```toml
+backend = "claude"
 env = ["ANTHROPIC_API_KEY"]  # read from host environment
 host_commands = ["git", "gh"]
 
@@ -118,11 +119,12 @@ test = "npm test"
 
 | Field | Description |
 |---|---|
+| `backend` | Agent backend to run: `claude` or `cursor` |
 | `commands` | Named commands exposed as `cbox_<name>` MCP tools (run on the host via `sh -c`) |
-| `env` | Environment variable names to pass from host into the Claude container |
+| `env` | Environment variable names to pass from host into the backend container |
 | `env_file` | Path to an env file |
 | `browser` | Enable Chrome bridge for browser-aware Claude sessions |
-| `host_commands` | Commands Claude can run on the host via the `run_command` MCP tool (e.g. `git`, `gh`) |
+| `host_commands` | Commands the backend can run on the host via the `run_command` MCP tool (e.g. `git`, `gh`) |
 | `copy_files` | Files or directories to copy from the main project into each new worktree |
 | `ports` | Ports to expose from the container to the host (Docker `-p` syntax) |
 | `dockerfile` | Path to custom Dockerfile (see `cbox eject`) |
@@ -137,7 +139,7 @@ Creates a default `cbox.toml` in the current directory with placeholder `build` 
 
 ### `cbox up <branch>`
 
-Creates a git worktree, builds the Claude image, creates a Docker network, and starts the Claude container. If `commands` or `host_commands` are configured, starts an MCP server on the host. Idempotent — re-running replaces the existing container.
+Creates a git worktree, builds the backend image, creates a Docker network, and starts the backend container. If `commands` or `host_commands` are configured, starts an MCP server on the host. Idempotent — re-running replaces the existing container.
 
 ### `cbox down <branch>`
 
@@ -145,18 +147,18 @@ Stops the container, MCP server, and removes the network. Preserves the worktree
 
 ### `cbox chat <branch>`
 
-Launches Claude Code interactively in the Claude container.
+Launches the configured backend interactively in the sandbox container.
 
 ### `cbox chat <branch> -p "<prompt>"`
 
-Runs a one-shot Claude prompt in the Claude container (headless, JSON output).
+Runs a one-shot backend prompt in the sandbox container (headless, JSON output).
 
 **Flags:**
 - `--open [command]` — Run a command before starting chat (uses `open` config if no command specified; use `$Dir` for worktree path)
 
 ### `cbox shell <branch>`
 
-Opens a bash shell in the Claude container. Useful for debugging.
+Opens a bash shell in the sandbox container. Useful for debugging.
 
 ### `cbox open <branch>`
 
@@ -202,7 +204,7 @@ Generates shell completion scripts. See [Shell Completion](#shell-completion) fo
 
 ## How named commands work
 
-Each entry in `commands` becomes a dedicated MCP tool named `cbox_<name>`. When Claude calls the tool, the MCP server on the host runs `sh -c '<expression>'` in the worktree directory.
+Each entry in `commands` becomes a dedicated MCP tool named `cbox_<name>`. When the backend calls the tool, the MCP server on the host runs `sh -c '<expression>'` in the worktree directory.
 
 For example, with this config:
 
@@ -212,19 +214,32 @@ test = "npm test"
 build = "npm run build"
 ```
 
-Claude sees two MCP tools: `cbox_test` and `cbox_build`. Calling `cbox_test` runs `sh -c 'npm test'` on the host in the worktree directory.
+The backend sees two MCP tools: `cbox_test` and `cbox_build`. Calling `cbox_test` runs `sh -c 'npm test'` on the host in the worktree directory.
 
 ## Host commands
 
-Claude inside the container doesn't have access to host tools like `git` or `gh`. The `host_commands` config whitelists commands that Claude can run on the host machine via the `run_command` MCP tool.
+The backend inside the container doesn't have access to host tools like `git` or `gh`. The `host_commands` config whitelists commands that the agent can run on the host machine via the `run_command` MCP tool.
 
-When `host_commands` or `commands` are configured, `cbox up` starts an MCP server on the host. Claude Code in the container connects to it automatically via `.mcp.json`. A system-level `CLAUDE.md` is also injected to tell Claude how to use the available tools.
+When `host_commands` or `commands` are configured, `cbox up` starts an MCP server on the host. Claude registers it through the Claude CLI; Cursor receives a generated `.cursor/mcp.json` in its home directory. cbox also provides agent instructions, using `~/.claude/CLAUDE.md` for Claude and a generated project-root `CLAUDE.md` in the sandbox worktree for Cursor.
 
 ```toml
 host_commands = ["git", "gh"]
 ```
 
-With this config, Claude can run `git status`, `gh pr create`, etc. on the host via the `run_command` tool. Commands not in the whitelist are rejected.
+With this config, the active backend can run `git status`, `gh pr create`, etc. on the host via the `run_command` tool. Commands not in the whitelist are rejected.
+
+## Backend Auth
+
+### Claude
+
+- Claude continues to support `ANTHROPIC_API_KEY` from `env` / `env_file`.
+- If you are logged in to Claude Code on macOS, cbox also reads the `Claude Code-credentials` Keychain item and injects it into the container automatically.
+
+### Cursor
+
+- For automation, set `CURSOR_API_KEY` in your shell or env file.
+- If no API key is present, cbox will try to reuse your local Cursor login by reading the `cursor-access-token` Keychain item and passing it as `CURSOR_AUTH_TOKEN`.
+- Cursor CLI runs with `--force`, `--trust`, and `--approve-mcps` in sandboxed sessions so it behaves more like the Claude flow.
 
 Path arguments containing `/workspace/...` are automatically translated to the host worktree path, and paths outside the worktree are rejected.
 
@@ -273,7 +288,7 @@ With this config, each new worktree will have these files copied from your main 
 
 ## Custom Dockerfiles
 
-By default, cbox uses a minimal Debian-based image with Claude CLI. If you need additional tools (Node.js, Python, Go, etc.) or system packages in the container, you can customize the Dockerfile:
+By default, cbox uses a minimal Debian-based image with the selected backend CLI. If you need additional tools (Node.js, Python, Go, etc.) or system packages in the container, you can customize the Dockerfile:
 
 ```bash
 # Eject the embedded Dockerfile
@@ -324,9 +339,9 @@ Changing ports requires restarting the sandbox (`cbox down` + `cbox up`).
 
 ### Docker-in-Docker
 
-The cbox container has the host Docker socket mounted and the Docker CLI installed, so Claude can run containers inside the sandbox. The `ports` field makes services started this way accessible from your host machine.
+The cbox container has the host Docker socket mounted and the Docker CLI installed, so the active backend can run containers inside the sandbox. The `ports` field makes services started this way accessible from your host machine.
 
-**Without eject** — Claude can use `docker run` directly inside the container. Expose the port so you can reach it from the host:
+**Without eject** — the backend can use `docker run` directly inside the container. Expose the port so you can reach it from the host:
 
 ```toml
 ports = ["3000"]
@@ -335,7 +350,7 @@ ports = ["3000"]
 build = "go build -o app ./cmd/server"
 ```
 
-Claude can then run the built binary via Docker:
+The backend can then run the built binary via Docker:
 
 ```bash
 docker run --rm -v /workspace:/workspace -w /workspace golang:1.23 ./app
@@ -370,7 +385,7 @@ build = "go build -o app ./cmd/server"
 run = "./app"
 ```
 
-Now Claude can build and run the app directly inside the container, and port 3000 is accessible on the host. Rebuild after ejecting:
+Now the backend can build and run the app directly inside the container, and port 3000 is accessible on the host. Rebuild after ejecting:
 
 ```bash
 cbox up --rebuild <branch>
@@ -490,9 +505,9 @@ Serve also starts/stops automatically with `cbox up` and `cbox down`.
 
 Per sandbox, cbox creates:
 
-- 1 container: `cbox-<project>-<branch>-claude`
+- 1 container: `cbox-<project>-<branch>-<backend>`
 - 1 bridge network: `cbox-<project>-<branch>`
-- 1 image: `cbox-<project>:claude`
+- 1 image: `cbox-<project>:<backend>`
 - 1 git worktree directory
 - 1 MCP server process (if commands or host_commands are configured)
 

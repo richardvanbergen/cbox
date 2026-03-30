@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +120,46 @@ func TestCleanWithRunningState(t *testing.T) {
 	statePath := filepath.Join(dir, StateDir, branch+".state.json")
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file still exists after Clean: %s", statePath)
+	}
+}
+
+func TestLoadState_NormalizesLegacyClaudeFields(t *testing.T) {
+	dir := t.TempDir()
+	branch := "legacy-claude"
+
+	legacy := map[string]any{
+		"claude_container": "cbox-legacy-claude",
+		"claude_image":     "cbox:test",
+		"network_name":     "cbox-legacy-net",
+		"worktree_path":    filepath.Join(dir, "fake-worktree"),
+		"branch":           branch,
+		"project_dir":      dir,
+		"running":          true,
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	stateDir := filepath.Join(dir, StateDir)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, branch+".state.json"), data, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	loaded, err := LoadState(dir, branch)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+
+	if loaded.Backend != "claude" {
+		t.Fatalf("Backend = %q, want %q", loaded.Backend, "claude")
+	}
+	if loaded.RuntimeContainer != "cbox-legacy-claude" {
+		t.Fatalf("RuntimeContainer = %q, want %q", loaded.RuntimeContainer, "cbox-legacy-claude")
+	}
+	if loaded.RuntimeImage != "cbox:test" {
+		t.Fatalf("RuntimeImage = %q, want %q", loaded.RuntimeImage, "cbox:test")
 	}
 }

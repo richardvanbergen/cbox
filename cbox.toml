@@ -8,18 +8,3 @@ open = "zellij action new-pane --close-on-exit --cwd $Dir -- $SHELL"
 build = "go build -o bin/cbox ./cmd/cbox"
 run = "go run ./cmd/cbox"
 test = "go test ./..."
-
-[workflow]
-branch = "$Slug"
-
-[workflow.issue]
-create = "gh issue create --title \"$Title\" --body \"$Description\" | grep -o '[0-9]*$'"
-view = "gh issue view \"$IssueID\" --json title,body,labels,state"
-close = "gh issue close \"$IssueID\""
-set_status = "gh issue edit \"$IssueID\" --add-label \"$Status\""
-comment = "gh issue comment \"$IssueID\" --body \"$Body\""
-
-[workflow.pr]
-create = "gh pr create --title \"$Title\" --body \"$Description\""
-merge = "gh pr merge \"$PRURL\" --merge"
-view = "gh pr view \"$PRNumber\" --json number,state,title,url,mergedAt"

@@ -13,6 +13,7 @@ const ConfigFile = "cbox.toml"
 const LegacyConfigFile = ".cbox.toml"
 
 type Config struct {
+	Backend      string            `toml:"backend,omitempty"`
 	Commands     map[string]string `toml:"commands,omitempty"`
 	Env          []string          `toml:"env,omitempty"`
 	EnvFile      string            `toml:"env_file,omitempty"`
@@ -33,6 +34,7 @@ type ServeConfig struct {
 
 func DefaultConfig() *Config {
 	return &Config{
+		Backend:      "claude",
 		Env:          []string{"ANTHROPIC_API_KEY"},
 		HostCommands: []string{"git", "gh"},
 		CopyFiles:    []string{".env"},

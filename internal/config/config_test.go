@@ -13,6 +13,13 @@ func TestDefaultConfig_CopyFilesIncludesEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_BackendClaude(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Backend != "claude" {
+		t.Errorf("DefaultConfig().Backend = %q, want %q", cfg.Backend, "claude")
+	}
+}
+
 func TestDefaultConfig_CommandsEmpty(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Commands != nil {

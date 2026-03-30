@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/richvanbergen/cbox/internal/backend"
 	"github.com/richvanbergen/cbox/internal/bridge"
 	"github.com/richvanbergen/cbox/internal/config"
 	"github.com/richvanbergen/cbox/internal/docker"
@@ -23,7 +24,7 @@ type UpOptions struct {
 	ReportDir string // If set, enables the cbox_report MCP tool
 }
 
-// Up creates a worktree, builds the Claude image, creates a network, and starts the Claude container.
+// Up creates a worktree, builds the runtime image, creates a network, and starts the backend container.
 // If rebuild is true, the image is built with --no-cache.
 func Up(projectDir, branch string, rebuild bool) error {
 	return UpWithOptions(projectDir, branch, UpOptions{Rebuild: rebuild})
@@ -32,6 +33,10 @@ func Up(projectDir, branch string, rebuild bool) error {
 // UpWithOptions creates a sandbox with additional options.
 func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+	rtBackend, err := backend.Get(backend.ParseName(cfg.Backend))
 	if err != nil {
 		return err
 	}
@@ -110,16 +115,17 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		output.Success("Serve URL: %s", serveURL)
 	}
 
-	// 3. Build Claude image
-	claudeImage := docker.ImageName(projectName, "claude")
-	output.Progress("Building Claude image %s", claudeImage)
+	// 3. Build runtime image
+	output.Progress("Building %s image", rtBackend.DisplayName())
 	buildOpts := docker.BuildOptions{NoCache: opts.Rebuild}
 	if cfg.Dockerfile != "" {
 		buildOpts.ProjectDockerfile = filepath.Join(projectDir, cfg.Dockerfile)
 	}
-	if err := docker.BuildClaudeImage(claudeImage, buildOpts); err != nil {
-		return fmt.Errorf("building claude image: %w", err)
+	runtimeImage, err := rtBackend.BuildImage(projectName, buildOpts)
+	if err != nil {
+		return fmt.Errorf("building %s image: %w", rtBackend.Name(), err)
 	}
+	output.Success("Built %s image %s", rtBackend.DisplayName(), runtimeImage)
 
 	// 4. Create Docker network
 	networkName := docker.NetworkName(projectName, branch)
@@ -128,9 +134,9 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
-	// 5. Stop/remove existing Claude container
-	claudeContainerName := docker.ContainerName(projectName, branch, "claude")
-	docker.StopAndRemove(claudeContainerName)
+	// 5. Stop/remove existing backend container
+	runtimeContainerName := rtBackend.ContainerName(projectName, branch)
+	docker.StopAndRemove(runtimeContainerName)
 
 	// 6. Resolve env file path
 	envFile := ""
@@ -169,49 +175,66 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		}
 	}
 
-	// 9. Start Claude container
-	output.Progress("Starting Claude container %s", claudeContainerName)
-	if err := docker.RunClaudeContainer(claudeContainerName, claudeImage, networkName, wtPath, gitMounts, cfg.Env, envFile, bridgeMappings, cfg.Ports); err != nil {
-		return fmt.Errorf("starting claude container: %w", err)
+	runtimeSpec := backend.RuntimeSpec{
+		ProjectDir:     projectDir,
+		ProjectName:    projectName,
+		Branch:         branch,
+		WorktreePath:   wtPath,
+		NetworkName:    networkName,
+		GitMounts:      gitMounts,
+		EnvVars:        cfg.Env,
+		EnvFile:        envFile,
+		BridgeMappings: bridgeMappings,
+		Ports:          cfg.Ports,
+		HostCommands:   cfg.HostCommands,
+		Commands:       cfg.Commands,
+		MCPPort:        mcpPort,
+	}
+	// 9. Start runtime container
+	output.Progress("Starting %s container %s", rtBackend.DisplayName(), runtimeContainerName)
+	runtimeContainerName, err = rtBackend.RunContainer(runtimeSpec, runtimeImage)
+	if err != nil {
+		return fmt.Errorf("starting %s container: %w", rtBackend.Name(), err)
 	}
 
-	// 10. Inject system CLAUDE.md into Claude container
-	output.Progress("Injecting system CLAUDE.md")
-	if err := docker.InjectClaudeMD(claudeContainerName, cfg.HostCommands, cfg.Commands, cfg.Ports); err != nil {
-		output.Warning("Could not inject CLAUDE.md: %v", err)
+	// 10. Inject backend instructions when required after startup.
+	output.Progress("Injecting %s instructions", rtBackend.DisplayName())
+	if err := rtBackend.InjectInstructions(runtimeContainerName, runtimeSpec); err != nil {
+		output.Warning("Could not inject backend instructions: %v", err)
 	}
 
-	// 11. Inject MCP config into Claude container if MCP proxy is running
+	// 11. Register MCP config inside the runtime when needed
 	if mcpPort > 0 {
-		output.Progress("Injecting MCP config into Claude container")
-		if err := docker.InjectMCPConfig(claudeContainerName, mcpPort); err != nil {
+		output.Progress("Registering MCP config for %s", rtBackend.DisplayName())
+		if err := rtBackend.RegisterMCP(runtimeContainerName, mcpPort); err != nil {
 			output.Warning("Could not inject MCP config: %v", err)
 		}
 	}
 
 	// 12. Save state
 	state := &State{
-		ClaudeContainer: claudeContainerName,
-		NetworkName:     networkName,
-		WorktreePath:    wtPath,
-		Branch:          branch,
-		ClaudeImage:     claudeImage,
-		ProjectDir:      projectDir,
-		Running:         true,
-		Ports:           cfg.Ports,
-		BridgeProxyPID:  bridgePID,
-		BridgeMappings:  bridgeMappings,
-		MCPProxyPID:     mcpPID,
-		MCPProxyPort:    mcpPort,
-		ServePID:        servePID,
-		ServePort:       servePort,
-		ServeURL:        serveURL,
+		Backend:          string(rtBackend.Name()),
+		RuntimeContainer: runtimeContainerName,
+		NetworkName:      networkName,
+		WorktreePath:     wtPath,
+		Branch:           branch,
+		RuntimeImage:     runtimeImage,
+		ProjectDir:       projectDir,
+		Running:          true,
+		Ports:            cfg.Ports,
+		BridgeProxyPID:   bridgePID,
+		BridgeMappings:   bridgeMappings,
+		MCPProxyPID:      mcpPID,
+		MCPProxyPort:     mcpPort,
+		ServePID:         servePID,
+		ServePort:        servePort,
+		ServeURL:         serveURL,
 	}
 	if err := SaveState(projectDir, branch, state); err != nil {
 		return fmt.Errorf("saving state: %w", err)
 	}
 
-	output.Success("Sandbox is running! Use 'cbox chat %s' to start Claude.", branch)
+	output.Success("Sandbox is running! Use 'cbox chat %s' to start %s.", branch, rtBackend.DisplayName())
 	return nil
 }
 
@@ -237,8 +260,8 @@ func Down(projectDir, branch string) error {
 	// Stop serve process and clean up Traefik route
 	stopServe(state, projectDir)
 
-	output.Progress("Stopping container %s", state.ClaudeContainer)
-	if err := docker.StopAndRemove(state.ClaudeContainer); err != nil {
+	output.Progress("Stopping container %s", state.RuntimeContainer)
+	if err := docker.StopAndRemove(state.RuntimeContainer); err != nil {
 		output.Warning("Could not remove container: %v", err)
 	}
 
@@ -263,47 +286,60 @@ func Down(projectDir, branch string) error {
 	return nil
 }
 
-// Chat launches Claude Code interactively in the Claude container.
-// If resume is true, passes --continue to resume the last conversation.
-// Otherwise, if initialPrompt is provided, it is sent as the first message.
+// Chat launches the configured backend interactively in the runtime container.
 func Chat(projectDir, branch string, chrome bool, initialPrompt string, resume bool) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
-
-	return docker.Chat(state.ClaudeContainer, chrome, initialPrompt, resume)
+	rtBackend, err := backend.Get(backend.ParseName(state.Backend))
+	if err != nil {
+		return err
+	}
+	return rtBackend.Chat(state.RuntimeContainer, backend.ChatOptions{
+		Chrome:        chrome,
+		InitialPrompt: initialPrompt,
+		Resume:        resume,
+	})
 }
 
-// ChatPrompt runs a one-shot Claude prompt in the Claude container.
+// ChatPrompt runs a one-shot backend prompt in the runtime container.
 func ChatPrompt(projectDir, branch, prompt string) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
-
-	return docker.ChatPrompt(state.ClaudeContainer, prompt)
+	rtBackend, err := backend.Get(backend.ParseName(state.Backend))
+	if err != nil {
+		return err
+	}
+	return rtBackend.ChatPrompt(state.RuntimeContainer, prompt)
 }
 
-// HasConversationHistory checks if Claude Code has any conversation history
-// for the sandbox on the given branch.
+// HasConversationHistory checks if the backend has any conversation history for the sandbox on the given branch.
 func HasConversationHistory(projectDir, branch string) (bool, error) {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return false, err
 	}
-
-	return docker.HasConversationHistory(state.ClaudeContainer)
+	rtBackend, err := backend.Get(backend.ParseName(state.Backend))
+	if err != nil {
+		return false, err
+	}
+	return rtBackend.HasConversationHistory(state.RuntimeContainer)
 }
 
-// Shell opens an interactive shell in the Claude container.
+// Shell opens an interactive shell in the runtime container.
 func Shell(projectDir, branch string) error {
 	state, err := LoadState(projectDir, branch)
 	if err != nil {
 		return err
 	}
-
-	return docker.Shell(state.ClaudeContainer)
+	rtBackend, err := backend.Get(backend.ParseName(state.Backend))
+	if err != nil {
+		return err
+	}
+	return rtBackend.Shell(state.RuntimeContainer)
 }
 
 // Info prints the current sandbox state.
@@ -314,8 +350,9 @@ func Info(projectDir, branch string) error {
 	}
 
 	output.Text("Branch:           %s", state.Branch)
+	output.Text("Backend:          %s", state.Backend)
 	output.Text("Worktree:         %s", state.WorktreePath)
-	output.Text("Claude container: %s", state.ClaudeContainer)
+	output.Text("Runtime container: %s", state.RuntimeContainer)
 	output.Text("Network:          %s", state.NetworkName)
 	if len(state.Ports) > 0 {
 		output.Text("Ports:            %s", strings.Join(state.Ports, ", "))
@@ -467,8 +504,8 @@ func cleanImpl(projectDir, branch string, quiet bool) error {
 	// the state file can be stale (e.g. after a crash or if Down was called
 	// but the container was restarted). StopAndRemove is safe to call even
 	// when the container is already gone.
-	progress("Stopping container %s", state.ClaudeContainer)
-	if err := docker.StopAndRemove(state.ClaudeContainer); err != nil {
+	progress("Stopping container %s", state.RuntimeContainer)
+	if err := docker.StopAndRemove(state.RuntimeContainer); err != nil {
 		warning("Could not remove container: %v", err)
 	}
 

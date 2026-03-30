@@ -7,27 +7,32 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/richvanbergen/cbox/internal/backend"
 	"github.com/richvanbergen/cbox/internal/bridge"
 )
 
 const StateDir = ".cbox"
 
 type State struct {
-	ClaudeContainer string                `json:"claude_container"`
-	NetworkName     string                `json:"network_name"`
-	WorktreePath    string                `json:"worktree_path"`
-	Branch          string                `json:"branch"`
-	ClaudeImage     string                `json:"claude_image"`
-	ProjectDir      string                `json:"project_dir"`
-	Running         bool                  `json:"running"`
-	BridgeProxyPID  int                   `json:"bridge_proxy_pid,omitempty"`
-	BridgeMappings  []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
-	MCPProxyPID     int                   `json:"mcp_proxy_pid,omitempty"`
-	MCPProxyPort    int                   `json:"mcp_proxy_port,omitempty"`
-	Ports           []string              `json:"ports,omitempty"`
-	ServePID        int                   `json:"serve_pid,omitempty"`
-	ServePort       int                   `json:"serve_port,omitempty"`
-	ServeURL        string                `json:"serve_url,omitempty"`
+	Backend          string                `json:"backend,omitempty"`
+	RuntimeContainer string                `json:"runtime_container,omitempty"`
+	NetworkName      string                `json:"network_name"`
+	WorktreePath     string                `json:"worktree_path"`
+	Branch           string                `json:"branch"`
+	RuntimeImage     string                `json:"runtime_image,omitempty"`
+	ProjectDir       string                `json:"project_dir"`
+	Running          bool                  `json:"running"`
+	BridgeProxyPID   int                   `json:"bridge_proxy_pid,omitempty"`
+	BridgeMappings   []bridge.ProxyMapping `json:"bridge_mappings,omitempty"`
+	MCPProxyPID      int                   `json:"mcp_proxy_pid,omitempty"`
+	MCPProxyPort     int                   `json:"mcp_proxy_port,omitempty"`
+	Ports            []string              `json:"ports,omitempty"`
+	ServePID         int                   `json:"serve_pid,omitempty"`
+	ServePort        int                   `json:"serve_port,omitempty"`
+	ServeURL         string                `json:"serve_url,omitempty"`
+
+	ClaudeContainer string `json:"claude_container,omitempty"`
+	ClaudeImage     string `json:"claude_image,omitempty"`
 }
 
 func stateFilePath(projectDir, branch string) string {
@@ -46,6 +51,7 @@ func LoadState(projectDir, branch string) (*State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parsing state: %w", err)
 	}
+	s.Normalize()
 	return &s, nil
 }
 
@@ -54,6 +60,10 @@ func SaveState(projectDir, branch string, s *State) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
+
+	s.Normalize()
+	s.ClaudeContainer = ""
+	s.ClaudeImage = ""
 
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -86,7 +96,20 @@ func ListStates(projectDir string) ([]*State, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
+		s.Normalize()
 		states = append(states, &s)
 	}
 	return states, nil
+}
+
+func (s *State) Normalize() {
+	if s.Backend == "" {
+		s.Backend = string(backend.Claude)
+	}
+	if s.RuntimeContainer == "" {
+		s.RuntimeContainer = s.ClaudeContainer
+	}
+	if s.RuntimeImage == "" {
+		s.RuntimeImage = s.ClaudeImage
+	}
 }

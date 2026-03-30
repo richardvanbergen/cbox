@@ -9,18 +9,18 @@ import (
 	"strings"
 )
 
-//go:embed templates/Dockerfile.claude.tmpl templates/entrypoint.sh
+//go:embed templates/Dockerfile.claude.tmpl templates/Dockerfile.cursor.tmpl templates/entrypoint.sh
 var claudeFiles embed.FS
 
-// BuildOptions controls how the Claude image is built.
+// BuildOptions controls how a backend image is built.
 type BuildOptions struct {
 	ProjectDockerfile string // absolute path to a custom Dockerfile; empty = use embedded
 	NoCache           bool   // pass --no-cache to docker build
 }
 
-// BuildClaudeImage builds the Claude container image from the embedded template
-// or a custom Dockerfile specified in opts.
-func BuildClaudeImage(imageName string, opts BuildOptions) error {
+// BuildImage builds a backend container image from an embedded template or a
+// custom Dockerfile specified in opts.
+func BuildImage(imageName, embeddedTemplate string, opts BuildOptions) error {
 	tmpDir, err := os.MkdirTemp("", "cbox-")
 	if err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
@@ -44,17 +44,18 @@ func BuildClaudeImage(imageName string, opts BuildOptions) error {
 			return fmt.Errorf("reading custom Dockerfile %s: %w", opts.ProjectDockerfile, err)
 		}
 	} else {
-		dockerfileData, err = claudeFiles.ReadFile("templates/Dockerfile.claude.tmpl")
+		dockerfileData, err = claudeFiles.ReadFile(embeddedTemplate)
 		if err != nil {
 			return fmt.Errorf("reading embedded Dockerfile: %w", err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile.claude"), dockerfileData, 0644); err != nil {
-		return fmt.Errorf("writing Dockerfile.claude: %w", err)
+	const dockerfileName = "Dockerfile.cbox-runtime"
+	if err := os.WriteFile(filepath.Join(tmpDir, dockerfileName), dockerfileData, 0644); err != nil {
+		return fmt.Errorf("writing %s: %w", dockerfileName, err)
 	}
 
 	buildArgs := []string{"build",
-		"-f", filepath.Join(tmpDir, "Dockerfile.claude"),
+		"-f", filepath.Join(tmpDir, dockerfileName),
 		"-t", imageName,
 	}
 	if opts.NoCache {
@@ -69,14 +70,31 @@ func BuildClaudeImage(imageName string, opts BuildOptions) error {
 	err = cmd.Run()
 	fmt.Fprintln(os.Stdout)
 	if err != nil {
-		return fmt.Errorf("building claude image: %w", err)
+		return fmt.Errorf("building image: %w", err)
 	}
 	return nil
 }
 
-// EmbeddedDockerfile returns the contents of the embedded Dockerfile template.
+// BuildClaudeImage builds the Claude container image from the embedded template
+// or a custom Dockerfile specified in opts.
+func BuildClaudeImage(imageName string, opts BuildOptions) error {
+	return BuildImage(imageName, "templates/Dockerfile.claude.tmpl", opts)
+}
+
+// BuildCursorImage builds the Cursor container image from the embedded template
+// or a custom Dockerfile specified in opts.
+func BuildCursorImage(imageName string, opts BuildOptions) error {
+	return BuildImage(imageName, "templates/Dockerfile.cursor.tmpl", opts)
+}
+
+// EmbeddedDockerfile returns the default embedded Dockerfile template.
 func EmbeddedDockerfile() ([]byte, error) {
-	return claudeFiles.ReadFile("templates/Dockerfile.claude.tmpl")
+	return EmbeddedDockerfileForTemplate("templates/Dockerfile.claude.tmpl")
+}
+
+// EmbeddedDockerfileForTemplate returns the contents of the requested embedded Dockerfile template.
+func EmbeddedDockerfileForTemplate(template string) ([]byte, error) {
+	return claudeFiles.ReadFile(template)
 }
 
 // ImageName returns a sanitized image name from the project name.

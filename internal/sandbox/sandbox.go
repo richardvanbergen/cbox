@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -81,14 +82,21 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		}
 	}
 
-	// 2. Start serve process and Traefik proxy if [serve] is configured.
+	// 2. Create Docker network early so it's available for $Network in serve commands.
+	networkName := docker.NetworkName(projectName, branch)
+	output.Progress("Creating network %s", networkName)
+	if err := docker.CreateNetwork(networkName); err != nil {
+		return fmt.Errorf("creating network: %w", err)
+	}
+
+	// 3. Start serve process and Traefik proxy if [serve] is configured.
 	//    This runs early so a broken serve command fails fast before we spend
 	//    time building images and creating containers.
 	var servePID, servePort int
 	var serveURL string
 	if cfg.Serve != nil && cfg.Serve.Command != "" {
 		output.Progress("Starting serve process")
-		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port, wtPath)
+		servePID, servePort, err = startServeProcess(cfg.Serve.Command, cfg.Serve.Port, wtPath, networkName)
 		if err != nil {
 			return fmt.Errorf("starting serve process: %w", err)
 		}
@@ -103,7 +111,19 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 			stopProcess(servePID)
 			return fmt.Errorf("starting traefik: %w", err)
 		}
-		if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort); err != nil {
+
+		// When container-based routing is configured, connect Traefik to the
+		// branch network so it can reach the serve container directly.
+		var containerHost string
+		if cfg.Serve.Container != "" {
+			traefikName := serve.TraefikContainerName(projectName)
+			docker.NetworkConnect(networkName, traefikName)
+			// Derive the devcontainer name: <worktree-basename>_devcontainer-<service>-1
+			wtBase := filepath.Base(wtPath)
+			containerHost = wtBase + "_devcontainer-" + cfg.Serve.Container + "-1"
+		}
+
+		if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort, containerHost); err != nil {
 			stopProcess(servePID)
 			return fmt.Errorf("adding traefik route: %w", err)
 		}
@@ -115,7 +135,7 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		output.Success("Serve URL: %s", serveURL)
 	}
 
-	// 3. Build runtime image
+	// 4. Build runtime image
 	output.Progress("Building %s image", rtBackend.DisplayName())
 	buildOpts := docker.BuildOptions{NoCache: opts.Rebuild}
 	if cfg.Dockerfile != "" {
@@ -126,13 +146,6 @@ func UpWithOptions(projectDir, branch string, opts UpOptions) error {
 		return fmt.Errorf("building %s image: %w", rtBackend.Name(), err)
 	}
 	output.Success("Built %s image %s", rtBackend.DisplayName(), runtimeImage)
-
-	// 4. Create Docker network
-	networkName := docker.NetworkName(projectName, branch)
-	output.Progress("Creating network %s", networkName)
-	if err := docker.CreateNetwork(networkName); err != nil {
-		return fmt.Errorf("creating network: %w", err)
-	}
 
 	// 5. Stop/remove existing backend container
 	runtimeContainerName := rtBackend.ContainerName(projectName, branch)
@@ -386,8 +399,11 @@ func Serve(projectDir, branch string) error {
 	projectName := filepath.Base(projectDir)
 	safeBranch := strings.ReplaceAll(branch, "/", "-")
 
+	networkName := docker.NetworkName(projectName, branch)
+	docker.CreateNetwork(networkName)
+
 	output.Progress("Starting serve process")
-	servePID, servePort, err := startServeProcess(cfg.Serve.Command, cfg.Serve.Port, state.WorktreePath)
+	servePID, servePort, err := startServeProcess(cfg.Serve.Command, cfg.Serve.Port, state.WorktreePath, networkName)
 	if err != nil {
 		return fmt.Errorf("starting serve process: %w", err)
 	}
@@ -403,7 +419,15 @@ func Serve(projectDir, branch string) error {
 		return fmt.Errorf("starting traefik: %w", err)
 	}
 
-	if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort); err != nil {
+	var containerHost string
+	if cfg.Serve.Container != "" {
+		traefikName := serve.TraefikContainerName(projectName)
+		docker.NetworkConnect(networkName, traefikName)
+		wtBase := filepath.Base(state.WorktreePath)
+		containerHost = wtBase + "_devcontainer-" + cfg.Serve.Container + "-1"
+	}
+
+	if err := serve.AddRoute(projectDir, safeBranch, projectName, servePort, containerHost); err != nil {
 		return fmt.Errorf("adding traefik route: %w", err)
 	}
 
@@ -655,13 +679,16 @@ func startMCPProxy(projectDir, worktreePath, branch string, hostCommands []strin
 
 // startServeProcess launches `cbox _serve-runner` as a background process.
 // It reads the JSON output from the process's stdout and returns its PID and port.
-func startServeProcess(command string, fixedPort int, dir string) (int, int, error) {
+func startServeProcess(command string, fixedPort int, dir string, network string) (int, int, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return 0, 0, fmt.Errorf("finding executable: %w", err)
 	}
 
 	args := []string{"_serve-runner", "--command", command, "--port", fmt.Sprintf("%d", fixedPort), "--dir", dir}
+	if network != "" {
+		args = append(args, "--network", network)
+	}
 
 	// Write serve output to a log file so it doesn't flood the terminal.
 	logDir := filepath.Join(filepath.Dir(dir), ".cbox")
@@ -686,20 +713,25 @@ func startServeProcess(command string, fixedPort int, dir string) (int, int, err
 		return 0, 0, fmt.Errorf("starting serve process: %w", err)
 	}
 
-	buf := make([]byte, 4096)
-	n, err := stdout.Read(buf)
-	if err != nil {
-		cmd.Process.Kill()
-		return 0, 0, fmt.Errorf("reading serve process output: %w", err)
-	}
-
-	line := strings.TrimSpace(string(buf[:n]))
 	var result struct {
 		Port int `json:"port"`
 	}
-	if err := json.Unmarshal([]byte(line), &result); err != nil {
+	scanner := bufio.NewScanner(stdout)
+	found := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if err := json.Unmarshal([]byte(line), &result); err == nil && result.Port > 0 {
+			found = true
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
 		cmd.Process.Kill()
-		return 0, 0, fmt.Errorf("parsing serve process output: %w", err)
+		return 0, 0, fmt.Errorf("reading serve process output: %w", err)
+	}
+	if !found {
+		cmd.Process.Kill()
+		return 0, 0, fmt.Errorf("parsing serve process output: no JSON port line found")
 	}
 
 	return cmd.Process.Pid, result.Port, nil

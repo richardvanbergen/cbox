@@ -610,13 +610,14 @@ func serveRunnerCmd() *cobra.Command {
 	var command string
 	var port int
 	var dir string
+	var network string
 
 	cmd := &cobra.Command{
 		Use:    "_serve-runner",
 		Short:  "Internal: run a serve process with PORT injection",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return serve.RunServeCommand(command, port, dir)
+			return serve.RunServeCommand(command, port, dir, network)
 		},
 	}
 
@@ -624,6 +625,7 @@ func serveRunnerCmd() *cobra.Command {
 	cmd.MarkFlagRequired("command")
 	cmd.Flags().IntVar(&port, "port", 0, "Fixed port (0 = auto-allocate)")
 	cmd.Flags().StringVar(&dir, "dir", "", "Working directory")
+	cmd.Flags().StringVar(&network, "network", "", "Docker network name (substituted as $Network)")
 	return cmd
 }
 

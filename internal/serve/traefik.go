@@ -61,11 +61,17 @@ func EnsureTraefik(projectDir, projectName string, proxyPort int) error {
 }
 
 // AddRoute writes a Traefik dynamic config file that routes the given hostname
-// to the backend port on the host.
-func AddRoute(projectDir, safeBranch, projectName string, backendPort int) error {
+// to a backend. If containerHost is non-empty, the route targets the container
+// directly on the Docker network. Otherwise it routes via host.docker.internal.
+func AddRoute(projectDir, safeBranch, projectName string, backendPort int, containerHost string) error {
 	dynDir := dynamicDir(projectDir)
 	if err := os.MkdirAll(dynDir, 0755); err != nil {
 		return fmt.Errorf("creating traefik dynamic dir: %w", err)
+	}
+
+	backendURL := fmt.Sprintf("http://host.docker.internal:%d", backendPort)
+	if containerHost != "" {
+		backendURL = fmt.Sprintf("http://%s:%d", containerHost, backendPort)
 	}
 
 	host := fmt.Sprintf("%s.%s.dev.localhost", safeBranch, projectName)
@@ -78,8 +84,8 @@ func AddRoute(projectDir, safeBranch, projectName string, backendPort int) error
     %s:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:%d"
-`, safeBranch, host, safeBranch, safeBranch, backendPort)
+          - url: "%s"
+`, safeBranch, host, safeBranch, safeBranch, backendURL)
 
 	path := filepath.Join(dynDir, safeBranch+".yml")
 	return os.WriteFile(path, []byte(content), 0644)

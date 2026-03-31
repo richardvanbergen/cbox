@@ -30,6 +30,7 @@ type ServeConfig struct {
 	Command   string `toml:"command,omitempty"`
 	Port      int    `toml:"port,omitempty"`
 	ProxyPort int    `toml:"proxy_port,omitempty"`
+	Container string `toml:"container,omitempty"`
 }
 
 func DefaultConfig() *Config {

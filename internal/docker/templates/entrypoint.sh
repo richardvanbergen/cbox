@@ -11,8 +11,9 @@ if [ -S /var/run/docker.sock ]; then
     usermod -aG "$SOCK_GROUP" claude
 fi
 
-# Write Claude Code credentials from host keychain into container
-if [ -n "$CLAUDE_CODE_CREDENTIALS" ]; then
+# Write Claude Code credentials from host keychain into container (fallback).
+# Skip if a bind-mounted credentials file already exists.
+if [ -n "$CLAUDE_CODE_CREDENTIALS" ] && [ ! -f /home/claude/.claude/.credentials.json ]; then
     echo "$CLAUDE_CODE_CREDENTIALS" > /home/claude/.claude/.credentials.json
     chown claude:claude /home/claude/.claude/.credentials.json
     chmod 600 /home/claude/.claude/.credentials.json

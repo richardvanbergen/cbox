@@ -1,6 +1,11 @@
 package backend
 
-import "github.com/richvanbergen/cbox/internal/docker"
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/richvanbergen/cbox/internal/docker"
+)
 
 type ClaudeBackend struct{}
 
@@ -24,7 +29,19 @@ func (ClaudeBackend) ContainerName(projectName, branch string) string {
 func (b ClaudeBackend) RunContainer(spec RuntimeSpec, imageName string) (string, error) {
 	containerName := b.ContainerName(spec.ProjectName, spec.Branch)
 	extraEnv := map[string]string{}
-	if creds := keychainPassword("Claude Code-credentials"); creds != "" {
+	var mounts []docker.Mount
+
+	// Prefer bind-mounting the host credentials file so the container stays
+	// in sync with the host's login state (e.g. OAuth token refreshes).
+	// Fall back to the Keychain env-var snapshot for hosts without the file.
+	credsPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+	if _, err := os.Stat(credsPath); err == nil {
+		mounts = append(mounts, docker.Mount{
+			Source:   credsPath,
+			Target:   "/home/claude/.claude/.credentials.json",
+			ReadOnly: true,
+		})
+	} else if creds := keychainPassword("Claude Code-credentials"); creds != "" {
 		extraEnv["CLAUDE_CODE_CREDENTIALS"] = creds
 	}
 
@@ -39,6 +56,7 @@ func (b ClaudeBackend) RunContainer(spec RuntimeSpec, imageName string) (string,
 		EnvFile:        spec.EnvFile,
 		BridgeMappings: spec.BridgeMappings,
 		Ports:          spec.Ports,
+		Mounts:         mounts,
 	})
 	return containerName, err
 }

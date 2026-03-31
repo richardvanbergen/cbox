@@ -17,7 +17,7 @@ func TestTraefikContainerName(t *testing.T) {
 func TestAddRoute(t *testing.T) {
 	dir := t.TempDir()
 
-	err := AddRoute(dir, "feature-auth", "myapp", 34567)
+	err := AddRoute(dir, "feature-auth", "myapp", 34567, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestRemoveRoute(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a route first
-	if err := AddRoute(dir, "feature-auth", "myapp", 34567); err != nil {
+	if err := AddRoute(dir, "feature-auth", "myapp", 34567, ""); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestHasRoutes(t *testing.T) {
 	}
 
 	// Add a route
-	if err := AddRoute(dir, "feature-auth", "myapp", 34567); err != nil {
+	if err := AddRoute(dir, "feature-auth", "myapp", 34567, ""); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 

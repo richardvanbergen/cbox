@@ -8,9 +8,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-
-	"github.com/richvanbergen/cbox/internal/bridge"
-	"github.com/richvanbergen/cbox/internal/output"
 )
 
 // GitMountConfig holds the paths needed to make git work inside the container.
@@ -56,71 +53,9 @@ func RemoveNetwork(name string) error {
 	return nil
 }
 
-// RunClaudeContainer starts the Claude container with docker socket, workspace mount, and shared network.
-func RunClaudeContainer(name, image, network, worktreePath string, gitMounts *GitMountConfig, envVars []string, envFile string, bridgeMappings []bridge.ProxyMapping, ports []string) error {
-	currentUser := os.Getenv("USER")
-
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--network", network,
-		"-v", worktreePath + ":/workspace",
-		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-	}
-
-	// Mount the project's .git directory and a rewritten .git file so that
-	// the worktree link resolves correctly inside the container.
-	if gitMounts != nil && gitMounts.ProjectGitDir != "" && gitMounts.ContainerGitFile != "" {
-		args = append(args,
-			"-v", gitMounts.ProjectGitDir+":/repo/.git",
-			"-v", gitMounts.ContainerGitFile+":/workspace/.git:ro",
-		)
-	}
-
-	for _, p := range ports {
-		args = append(args, "-p", p)
-	}
-
-	// Extract Claude Code OAuth credentials from macOS Keychain and pass to container
-	credCmd := exec.Command("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")
-	if credOut, err := credCmd.Output(); err == nil {
-		args = append(args, "-e", "CLAUDE_CODE_CREDENTIALS="+strings.TrimSpace(string(credOut)))
-	}
-
-	// Pass Chrome bridge mappings and USER so the entrypoint can set up socat relays
-	if len(bridgeMappings) > 0 {
-		mappingsJSON, err := bridge.MarshalMappings(bridgeMappings)
-		if err == nil {
-			args = append(args, "-e", "CHROME_BRIDGE_MAPPINGS="+mappingsJSON)
-			args = append(args, "-e", "USER="+currentUser)
-		}
-	}
-
-	for _, env := range envVars {
-		val := os.Getenv(env)
-		if val != "" {
-			args = append(args, "-e", env+"="+val)
-		}
-	}
-
-	if envFile != "" {
-		if _, err := os.Stat(envFile); err == nil {
-			args = append(args, "--env-file", envFile)
-		}
-	}
-
-	args = append(args, image)
-
-	cmd := exec.Command("docker", args...)
-	cw := output.NewCommandWriter(os.Stdout)
-	cmd.Stdout = cw
-	cmd.Stderr = cw
-	runErr := cmd.Run()
-	cw.Close()
-	if runErr != nil {
-		return fmt.Errorf("docker run (claude): %w", runErr)
-	}
-	return nil
+// NetworkConnect connects a container to a network. It is idempotent.
+func NetworkConnect(network, container string) {
+	exec.Command("docker", "network", "connect", network, container).Run()
 }
 
 // terminalEnvArgs returns docker exec -e flags for host terminal environment

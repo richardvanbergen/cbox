@@ -31,6 +31,8 @@ type State struct {
 	ServePort        int                   `json:"serve_port,omitempty"`
 	ServeURL         string                `json:"serve_url,omitempty"`
 
+	SourceBranch string `json:"source_branch,omitempty"`
+
 	ClaudeContainer string `json:"claude_container,omitempty"`
 	ClaudeImage     string `json:"claude_image,omitempty"`
 }

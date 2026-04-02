@@ -13,20 +13,24 @@ const ConfigFile = "cbox.toml"
 const LegacyConfigFile = ".cbox.toml"
 
 type Config struct {
-	Backend      string            `toml:"backend,omitempty"`
-	Commands     map[string]string `toml:"commands,omitempty"`
-	Env          []string          `toml:"env,omitempty"`
-	EnvFile      string            `toml:"env_file,omitempty"`
-	Browser      bool              `toml:"browser,omitempty"`
-	HostCommands []string          `toml:"host_commands,omitempty"`
-	CopyFiles    []string          `toml:"copy_files,omitempty"`
-	Ports        []string          `toml:"ports,omitempty"`
-	Dockerfile   string            `toml:"dockerfile,omitempty"`
-	Open         string            `toml:"open,omitempty"`
-	Serve        *ServeConfig      `toml:"serve,omitempty"`
+	Backend        string            `toml:"backend,omitempty"`
+	Commands       map[string]string `toml:"commands,omitempty"`
+	CommandTimeout int               `toml:"command_timeout,omitempty"`
+	Env            []string          `toml:"env,omitempty"`
+	EnvFile        string            `toml:"env_file,omitempty"`
+	Browser        bool              `toml:"browser,omitempty"`
+	HostCommands   []string          `toml:"host_commands,omitempty"`
+	CopyFiles      []string          `toml:"copy_files,omitempty"`
+	Ports          []string          `toml:"ports,omitempty"`
+	Dockerfile     string            `toml:"dockerfile,omitempty"`
+	Open           string            `toml:"open,omitempty"`
+	Serve          *ServeConfig      `toml:"serve,omitempty"`
 }
 
 type ServeConfig struct {
+	Up        string `toml:"up,omitempty"`
+	Setup     string `toml:"setup,omitempty"`
+	Clean     string `toml:"clean,omitempty"`
 	Command   string `toml:"command,omitempty"`
 	Port      int    `toml:"port,omitempty"`
 	ProxyPort int    `toml:"proxy_port,omitempty"`

@@ -23,7 +23,7 @@ type runnerOutput struct {
 // user's command with port variables substituted. $Port is the primary port
 // (used for Traefik routing). Additional ports ($Port2, $Port3, ...) are
 // auto-allocated for services that need their own ports (e.g. dev tools).
-func RunServeCommand(command string, fixedPort int, dir string, network string) error {
+func RunServeCommand(command string, fixedPort int, dir string, network string, branch string) error {
 	port, err := AllocatePort(fixedPort)
 	if err != nil {
 		return err
@@ -37,6 +37,7 @@ func RunServeCommand(command string, fixedPort int, dir string, network string) 
 	}
 	expanded = strings.ReplaceAll(expanded, "$Port", fmt.Sprintf("%d", port))
 	expanded = strings.ReplaceAll(expanded, "$Network", network)
+	expanded = strings.ReplaceAll(expanded, "$Branch", branch)
 	cmd := exec.Command("sh", "-c", expanded)
 	if dir != "" {
 		cmd.Dir = dir

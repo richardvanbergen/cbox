@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"path/filepath"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/richvanbergen/cbox/internal/output"
 	"github.com/richvanbergen/cbox/internal/sandbox"
 	"github.com/richvanbergen/cbox/internal/serve"
+	"github.com/richvanbergen/cbox/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -117,6 +119,52 @@ func sandboxCompletion() func(*cobra.Command, []string, string) ([]string, cobra
 	}
 }
 
+// runCmdCompletion completes branch name first, then command name from that branch's config.
+func runCmdCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		// First arg: branch name
+		if len(args) == 0 {
+			states, err := sandbox.ListStates(dir)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			var completions []string
+			for _, s := range states {
+				if s.Branch != "" && strings.HasPrefix(s.Branch, toComplete) {
+					completions = append(completions, s.Branch)
+				}
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		// Second arg: command name, loaded from the branch's project config
+		if len(args) == 1 {
+			state, err := sandbox.LoadState(dir, args[0])
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			cfg, err := config.Load(state.ProjectDir)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			var completions []string
+			for name := range cfg.Commands {
+				if strings.HasPrefix(name, toComplete) {
+					completions = append(completions, name)
+				}
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 // configCommandCompletion returns a completion function that suggests commands from cbox.toml.
 func configCommandCompletion() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -174,11 +222,19 @@ func upCmd() *cobra.Command {
 	var rebuild bool
 
 	cmd := &cobra.Command{
-		Use:   "up <branch>",
+		Use:   "up [branch]",
 		Short: "Create worktree and start sandboxed agent container",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Up(projectDir(), args[0], rebuild)
+			dir := projectDir()
+			if len(args) == 0 {
+				branch, err := worktree.CurrentBranch(dir)
+				if err != nil {
+					return fmt.Errorf("getting current branch: %w", err)
+				}
+				return sandbox.UpWithOptions(dir, branch, sandbox.UpOptions{Rebuild: rebuild, NoWorktree: true})
+			}
+			return sandbox.Up(dir, args[0], rebuild)
 		},
 	}
 
@@ -188,12 +244,20 @@ func upCmd() *cobra.Command {
 
 func downCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:               "down <branch>",
+		Use:               "down [branch]",
 		Short:             "Stop the sandboxed container (keeps worktree)",
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.RangeArgs(0, 1),
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Down(projectDir(), args[0])
+			dir := projectDir()
+			if len(args) == 0 {
+				branch, err := worktree.CurrentBranch(dir)
+				if err != nil {
+					return fmt.Errorf("getting current branch: %w", err)
+				}
+				return sandbox.Down(dir, branch)
+			}
+			return sandbox.Down(dir, args[0])
 		},
 	}
 }
@@ -263,6 +327,7 @@ func openCmd() *cobra.Command {
 func chatCmd() *cobra.Command {
 	var prompt string
 	var openCmd string
+	var outputFormat string
 
 	cmd := &cobra.Command{
 		Use:               "chat <branch>",
@@ -283,7 +348,7 @@ func chatCmd() *cobra.Command {
 			runOpenCommand(cfg, openFlag, openCmd, dir, branch)
 
 			if prompt != "" {
-				return sandbox.ChatPrompt(dir, branch, prompt)
+				return sandbox.ChatPrompt(dir, branch, prompt, outputFormat)
 			}
 			return sandbox.Chat(dir, branch, chrome, "", false)
 		},
@@ -291,6 +356,7 @@ func chatCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Run a one-shot prompt instead of interactive mode")
 	cmd.Flags().StringVar(&openCmd, "open", "", "Run a command before chat (use $Dir for worktree path); omit value to use config default")
+	cmd.Flags().StringVar(&outputFormat, "output-format", "text", "Output format for one-shot mode: text, json, stream-json")
 	cmd.Flags().Lookup("open").NoOptDefVal = " "
 	return cmd
 }
@@ -350,15 +416,36 @@ func infoCmd() *cobra.Command {
 }
 
 func cleanCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "clean <branch>",
+	var keepBranch bool
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:               "clean [branch]",
 		Short:             "Stop container, remove worktree and branch",
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.RangeArgs(0, 1),
 		ValidArgsFunction: sandboxCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.Clean(projectDir(), args[0])
+			dir := projectDir()
+			var branch string
+			if len(args) == 0 {
+				var err error
+				branch, err = worktree.CurrentBranch(dir)
+				if err != nil {
+					return fmt.Errorf("getting current branch: %w", err)
+				}
+			} else {
+				branch = args[0]
+			}
+			return sandbox.CleanWithOptions(dir, branch, sandbox.CleanOptions{
+				KeepBranch: keepBranch,
+				Force:      force,
+			})
 		},
 	}
+
+	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Preserve the local git branch after removing the worktree")
+	cmd.Flags().BoolVar(&force, "force", false, "Delete branch even if it has unpushed commits")
+	return cmd
 }
 
 func serveCmd() *cobra.Command {
@@ -370,6 +457,7 @@ func serveCmd() *cobra.Command {
 	cmd.AddCommand(serveStartCmd())
 	cmd.AddCommand(serveStopCmd())
 	cmd.AddCommand(serveLogsCmd())
+	cmd.AddCommand(serveCleanCmd())
 
 	return cmd
 }
@@ -427,28 +515,49 @@ func serveLogsCmd() *cobra.Command {
 	return cmd
 }
 
+func serveCleanCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:               "clean <branch>",
+		Short:             "Run the serve clean command to tear down branch resources (e.g. drop database)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: sandboxCompletion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.ServeClean(projectDir(), args[0])
+		},
+	}
+}
+
 func runCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "run <command>",
-		Short: "Run a named command from cbox.toml",
+		Use:   "run <branch> <command>",
+		Short: "Run a named command from cbox.toml in the sandbox worktree",
 		Long: `Run a named command defined in the commands section of cbox.toml.
+The command runs in the sandbox worktree directory on the host.
+
 For example, if your config has:
 
   [commands]
   build = "go build ./..."
   test = "go test ./..."
 
-Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: configCommandCompletion(),
+Then 'cbox run my-branch build' will execute 'go build ./...' in the worktree for my-branch.`,
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: runCmdCompletion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := projectDir()
-			cfg, err := config.Load(dir)
+			branch := args[0]
+			name := args[1]
+
+			state, err := sandbox.LoadState(dir, branch)
+			if err != nil {
+				return fmt.Errorf("loading sandbox state for %q: %w", branch, err)
+			}
+
+			cfg, err := config.Load(state.ProjectDir)
 			if err != nil {
 				return err
 			}
 
-			name := args[0]
 			expr, ok := cfg.Commands[name]
 			if !ok {
 				available := make([]string, 0, len(cfg.Commands))
@@ -461,8 +570,12 @@ Then 'cbox run build' will execute 'go build ./...' via sh -c.`,
 				return fmt.Errorf("unknown command %q (available: %s)", name, strings.Join(available, ", "))
 			}
 
+			expr = strings.ReplaceAll(expr, "$Port", fmt.Sprintf("%d", state.ServePort))
+			expr = strings.ReplaceAll(expr, "$Branch", state.Branch)
+			expr = strings.ReplaceAll(expr, "$Dir", state.WorktreePath)
+
 			c := exec.Command("sh", "-c", expr)
-			c.Dir = dir
+			c.Dir = state.WorktreePath
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
@@ -611,13 +724,14 @@ func serveRunnerCmd() *cobra.Command {
 	var port int
 	var dir string
 	var network string
+	var branch string
 
 	cmd := &cobra.Command{
 		Use:    "_serve-runner",
 		Short:  "Internal: run a serve process with PORT injection",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return serve.RunServeCommand(command, port, dir, network)
+			return serve.RunServeCommand(command, port, dir, network, branch)
 		},
 	}
 
@@ -626,6 +740,7 @@ func serveRunnerCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "Fixed port (0 = auto-allocate)")
 	cmd.Flags().StringVar(&dir, "dir", "", "Working directory")
 	cmd.Flags().StringVar(&network, "network", "", "Docker network name (substituted as $Network)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch name (substituted as $Branch)")
 	return cmd
 }
 
@@ -634,6 +749,7 @@ func mcpProxyCmd() *cobra.Command {
 	var commandsJSON string
 	var reportDir string
 	var logDir string
+	var commandTimeout time.Duration
 
 	cmd := &cobra.Command{
 		Use:    "_mcp-proxy [host-commands...]",
@@ -646,7 +762,7 @@ func mcpProxyCmd() *cobra.Command {
 					return fmt.Errorf("parsing --commands JSON: %w", err)
 				}
 			}
-			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, logDir)
+			return hostcmd.RunProxyCommand(worktreePath, args, namedCommands, reportDir, logDir, commandTimeout)
 		},
 	}
 
@@ -655,6 +771,7 @@ func mcpProxyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&commandsJSON, "commands", "", "JSON map of named project commands")
 	cmd.Flags().StringVar(&reportDir, "report-dir", "", "Directory for cbox_report tool output")
 	cmd.Flags().StringVar(&logDir, "log-dir", "", "Directory for command log files")
+	cmd.Flags().DurationVar(&commandTimeout, "command-timeout", 0, "Timeout for command execution (0 uses default of 120s)")
 	return cmd
 }
 

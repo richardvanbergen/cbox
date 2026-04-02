@@ -39,12 +39,25 @@ func Create(projectDir, branch string) (string, error) {
 		// so the next git worktree add doesn't fail with "already exists".
 		os.RemoveAll(wtPath)
 
-		// Branch doesn't exist, create it
-		cmd = exec.Command("git", "worktree", "add", wtPath, "-b", branch)
+		// The branch may exist but be registered to a now-deleted worktree
+		// directory. Prune stale entries and retry before giving up.
+		pruneCmd := exec.Command("git", "worktree", "prune")
+		pruneCmd.Dir = projectDir
+		pruneCmd.Run() //nolint:errcheck — best effort
+
+		cmd = exec.Command("git", "worktree", "add", wtPath, branch)
 		cmd.Dir = projectDir
 		out, err = cmd.CombinedOutput()
 		if err != nil {
-			return "", fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
+			os.RemoveAll(wtPath)
+
+			// Branch doesn't exist, create it
+			cmd = exec.Command("git", "worktree", "add", wtPath, "-b", branch)
+			cmd.Dir = projectDir
+			out, err = cmd.CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
+			}
 		}
 	}
 
@@ -94,6 +107,18 @@ func DeleteBranch(projectDir, branch string) error {
 		return fmt.Errorf("git branch -D: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+// HasUnpushedCommits returns true if the branch has commits that have not been
+// pushed to any remote. Uses --max-count=1 so it stops at the first hit.
+func HasUnpushedCommits(projectDir, branch string) (bool, error) {
+	cmd := exec.Command("git", "log", branch, "--not", "--remotes", "--oneline", "--max-count=1")
+	cmd.Dir = projectDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("checking unpushed commits: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // CopyFiles copies a list of files or directories from projectDir to wtPath.

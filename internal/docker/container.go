@@ -125,11 +125,11 @@ func Chat(name string, chrome bool, initialPrompt string, resume bool) error {
 }
 
 // ChatPrompt runs Claude in headless mode with a prompt inside the Claude container.
-func ChatPrompt(name, prompt string) error {
+func ChatPrompt(name, prompt, outputFormat string) error {
 	cmd := exec.Command("docker", "exec", "-u", "claude", name,
 		"claude", "--dangerously-skip-permissions",
 		"-p", prompt,
-		"--output-format", "json",
+		"--output-format", outputFormat,
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

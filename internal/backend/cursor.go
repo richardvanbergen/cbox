@@ -31,7 +31,9 @@ func (CursorBackend) ContainerName(projectName, branch string) string {
 
 func (b CursorBackend) RunContainer(spec RuntimeSpec, imageName string) (string, error) {
 	containerName := b.ContainerName(spec.ProjectName, spec.Branch)
-	extraEnv := map[string]string{}
+	extraEnv := map[string]string{
+		"CBOX_BRANCH": safeBranch(spec.Branch),
+	}
 	if apiKey := strings.TrimSpace(os.Getenv("CURSOR_API_KEY")); apiKey != "" {
 		extraEnv["CURSOR_API_KEY"] = apiKey
 	} else if authToken := keychainPassword("cursor-access-token"); authToken != "" {
@@ -91,11 +93,11 @@ func (CursorBackend) Chat(containerName string, opts ChatOptions) error {
 	return docker.ExecInteractive(containerName, cursorUser, args...)
 }
 
-func (CursorBackend) ChatPrompt(containerName, prompt string) error {
+func (CursorBackend) ChatPrompt(containerName, prompt, outputFormat string) error {
 	args := []string{
 		"agent",
 		"--print",
-		"--output-format", "json",
+		"--output-format", outputFormat,
 		"--force",
 		"--trust",
 		"--approve-mcps",

@@ -48,7 +48,7 @@ type Backend interface {
 	InjectInstructions(containerName string, spec RuntimeSpec) error
 	RegisterMCP(containerName string, mcpPort int) error
 	Chat(containerName string, opts ChatOptions) error
-	ChatPrompt(containerName, prompt string) error
+	ChatPrompt(containerName, prompt, outputFormat string) error
 	Shell(containerName string) error
 	HasConversationHistory(containerName string) (bool, error)
 	EmbeddedDockerfile() ([]byte, error)

@@ -17,7 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const commandTimeout = 120 * time.Second
+const defaultCommandTimeout = 120 * time.Second
 
 // Report represents a single report from the inner Claude.
 type Report struct {
@@ -30,13 +30,14 @@ type Report struct {
 // Server is an MCP server that exposes a run_command tool for whitelisted commands
 // and dedicated tools for named project commands.
 type Server struct {
-	worktreePath  string
-	allowedCmds   map[string]bool
-	namedCommands map[string]string
-	reportDir     string
-	logDir        string // directory for command log files (defaults to <worktreePath>/.cbox/logs)
-	listener      net.Listener
-	httpServer    *http.Server
+	worktreePath   string
+	allowedCmds    map[string]bool
+	namedCommands  map[string]string
+	reportDir      string
+	logDir         string // directory for command log files (defaults to <worktreePath>/.cbox/logs)
+	commandTimeout time.Duration
+	listener       net.Listener
+	httpServer     *http.Server
 }
 
 // NewServer creates a new MCP host command server.
@@ -46,10 +47,16 @@ func NewServer(worktreePath string, commands []string, namedCommands map[string]
 		allowed[c] = true
 	}
 	return &Server{
-		worktreePath:  worktreePath,
-		allowedCmds:   allowed,
-		namedCommands: namedCommands,
+		worktreePath:   worktreePath,
+		allowedCmds:    allowed,
+		namedCommands:  namedCommands,
+		commandTimeout: defaultCommandTimeout,
 	}
+}
+
+// SetCommandTimeout overrides the default 120-second timeout for command execution.
+func (s *Server) SetCommandTimeout(d time.Duration) {
+	s.commandTimeout = d
 }
 
 // SetReportDir enables the cbox_report tool and sets where reports are stored.
@@ -173,7 +180,7 @@ func (s *Server) handleRunCommand(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError("working directory must be within the workspace"), nil
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, s.commandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, command, args...)
@@ -186,7 +193,7 @@ func (s *Server) handleRunCommand(ctx context.Context, request mcp.CallToolReque
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if execCtx.Err() == context.DeadlineExceeded {
-			return mcp.NewToolResultError("command timed out after 120 seconds"), nil
+			return mcp.NewToolResultError(fmt.Sprintf("command timed out after %s", s.commandTimeout)), nil
 		} else {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
 		}
@@ -205,6 +212,9 @@ func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
 	return mcp.NewTool(
 		"cbox_"+name,
 		mcp.WithDescription(desc),
+		mcp.WithString("args",
+			mcp.Description("Additional arguments substituted for $Args in the command (optional)"),
+		),
 	)
 }
 
@@ -214,10 +224,12 @@ func (s *Server) namedToolDefinition(name, expr string) mcp.Tool {
 // need to read log files from the workspace.
 func (s *Server) makeNamedCommandHandler(name, expr string) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		execCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+		execCtx, cancel := context.WithTimeout(ctx, s.commandTimeout)
 		defer cancel()
 
-		cmd := exec.CommandContext(execCtx, "sh", "-c", expr)
+		argsVal := request.GetString("args", "")
+		resolvedExpr := strings.ReplaceAll(expr, "$Args", argsVal)
+		cmd := exec.CommandContext(execCtx, "sh", "-c", resolvedExpr)
 		cmd.Dir = s.worktreePath
 
 		output, err := cmd.CombinedOutput()
@@ -227,7 +239,7 @@ func (s *Server) makeNamedCommandHandler(name, expr string) server.ToolHandlerFu
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = exitErr.ExitCode()
 			} else if execCtx.Err() == context.DeadlineExceeded {
-				return mcp.NewToolResultError("command timed out after 120 seconds"), nil
+				return mcp.NewToolResultError(fmt.Sprintf("command timed out after %s", s.commandTimeout)), nil
 			} else {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
 			}

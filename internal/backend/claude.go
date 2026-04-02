@@ -28,7 +28,9 @@ func (ClaudeBackend) ContainerName(projectName, branch string) string {
 
 func (b ClaudeBackend) RunContainer(spec RuntimeSpec, imageName string) (string, error) {
 	containerName := b.ContainerName(spec.ProjectName, spec.Branch)
-	extraEnv := map[string]string{}
+	extraEnv := map[string]string{
+		"CBOX_BRANCH": safeBranch(spec.Branch),
+	}
 	var mounts []docker.Mount
 
 	// Prefer bind-mounting the host credentials file so the container stays
@@ -73,8 +75,8 @@ func (ClaudeBackend) Chat(containerName string, opts ChatOptions) error {
 	return docker.Chat(containerName, opts.Chrome, opts.InitialPrompt, opts.Resume)
 }
 
-func (ClaudeBackend) ChatPrompt(containerName, prompt string) error {
-	return docker.ChatPrompt(containerName, prompt)
+func (ClaudeBackend) ChatPrompt(containerName, prompt, outputFormat string) error {
+	return docker.ChatPrompt(containerName, prompt, outputFormat)
 }
 
 func (ClaudeBackend) Shell(containerName string) error {

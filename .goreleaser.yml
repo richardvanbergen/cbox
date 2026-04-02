@@ -19,6 +19,7 @@ archives:
     name_template: "cbox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+      - skills/**/*
 
 checksum:
   name_template: checksums.txt

@@ -36,6 +36,27 @@ go build -o bin/cbox ./cmd/cbox
 
 Requires Docker.
 
+## Claude Skills
+
+cbox ships three Claude Code skills that wire up the `/cbox-init`, `/cbox-plan`, and `/cbox-swarm` slash commands.
+
+**From a release tarball** — skills are included in each release archive under `skills/`. Extract and symlink:
+
+```bash
+tar -xzf cbox_*.tar.gz
+ln -s $PWD/skills/cbox-init ~/.claude/skills/cbox-init
+ln -s $PWD/skills/cbox-plan ~/.claude/skills/cbox-plan
+ln -s $PWD/skills/cbox-swarm ~/.claude/skills/cbox-swarm
+```
+
+**From a clone** — symlink directly from the repo:
+
+```bash
+ln -s $PWD/skills/cbox-init ~/.claude/skills/cbox-init
+ln -s $PWD/skills/cbox-plan ~/.claude/skills/cbox-plan
+ln -s $PWD/skills/cbox-swarm ~/.claude/skills/cbox-swarm
+```
+
 ## Shell Completion
 
 cbox supports shell completion for bash, zsh, and fish. Completions include commands, flags, git branches, and config-defined commands.
